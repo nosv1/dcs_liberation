@@ -17,6 +17,7 @@
     "CH-47D",
     "CH-53E",
     "F-117A Nighthawk",
+    "F-14A Tomcat (AI)",
     "F-14A Tomcat (Block 135-GR Late)",
     "F-14B Tomcat",
     "F-15C Eagle",
@@ -26,7 +27,8 @@
     "S-3B Viking",
     "SH-60B Seahawk",
     "UH-1H Iroquois",
-    "UH-60A"
+    "UH-60A",
+    "UH-60L"
   ],
   "awacs": [
     "E-2C Hawkeye",
@@ -34,6 +36,7 @@
   ],
   "tankers": [
     "KC-130",
+    "KC-130J",
     "KC-135 Stratotanker",
     "S-3B Tanker"
   ],
@@ -60,27 +63,22 @@
     "MANPADS Stinger",
     "Mortar 2B11 120mm"
   ],
-  "air_defenses": [
-    "AvengerGenerator",
-    "ChaparralGenerator",
-    "HawkGenerator",
-    "PatriotGenerator"
+  "preset_groups": [
+    "Hawk",
+    "Patriot"
   ],
-  "ewrs": [
-    "PatriotEwrGenerator"
+  "naval_units": [
+    "FFG Oliver Hazard Perry",
+    "DDG Arleigh Burke IIa",
+    "CG Ticonderoga",
+    "LHA-1 Tarawa",
+    "CVN-74 John C. Stennis"
   ],
-  "aircraft_carrier": [
-    "Stennis"
-  ],
-  "helicopter_carrier": [
-    "LHA_Tarawa"
-  ],
-  "destroyers": [
-    "PERRY",
-    "USS_Arleigh_Burke_IIa"
-  ],
-  "cruisers": [
-    "TICONDEROG"
+  "missiles": [],
+  "air_defense_units": [
+    "SAM Patriot STR",
+    "M1097 Heavy HMMWV Avenger",
+    "M48 Chaparral"
   ],
   "requirements": {},
   "carrier_names": [
@@ -96,10 +94,6 @@
     "LHA-3 Belleau Wood",
     "LHA-4 Nassau",
     "LHA-5 Peleliu"
-  ],
-  "navy_generators": [
-    "OliverHazardPerryGroupGenerator",
-    "ArleighBurkeGroupGenerator"
   ],
   "has_jtac": true,
   "jtac_unit": "MQ-9 Reaper",

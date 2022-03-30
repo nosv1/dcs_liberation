@@ -6,8 +6,8 @@ from PySide2.QtWidgets import QComboBox
 
 from game import Game
 from game.data.weapons import Pylon, Weapon
-from gen.flights.flight import Flight
-from gen.flights.loadouts import Loadout
+from game.ato.flight import Flight
+from game.ato.loadouts import Loadout
 
 
 class QPylonEditor(QComboBox):
@@ -56,7 +56,7 @@ class QPylonEditor(QComboBox):
         #
         # A similar hack exists in Pylon to support forcibly equipping this even when
         # it's not known to be compatible.
-        if weapon.cls_id == "<CLEAN>":
+        if weapon.clsid == "<CLEAN>":
             if not self.has_added_clean_item:
                 self.addItem("Clean", weapon)
                 self.has_added_clean_item = True

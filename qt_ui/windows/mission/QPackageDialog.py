@@ -15,15 +15,17 @@ from PySide2.QtWidgets import (
     QVBoxLayout,
 )
 
+from game.ato.flight import Flight
+from game.ato.flightplans.flightplanbuilder import FlightPlanBuilder
+from game.ato.flightplans.planningerror import PlanningError
+from game.ato.package import Package
 from game.game import Game
+from game.server import EventStream
+from game.sim import GameUpdateEvents
 from game.theater.missiontarget import MissionTarget
-from gen.ato import Package
-from gen.flights.flight import Flight
-from gen.flights.flightplan import FlightPlanBuilder, PlanningError
 from qt_ui.models import AtoModel, GameModel, PackageModel
 from qt_ui.uiconstants import EVENT_ICONS
 from qt_ui.widgets.ato import QFlightList
-from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.mission.flight.QFlightCreator import QFlightCreator
 
 
@@ -141,9 +143,10 @@ class QPackageDialog(QDialog):
     def on_cancel(self) -> None:
         pass
 
-    @staticmethod
-    def on_close(_result) -> None:
-        GameUpdateSignal.get_instance().redraw_flight_paths()
+    def on_close(self, _result) -> None:
+        EventStream.put_nowait(
+            GameUpdateEvents().update_flights_in_package(self.package_model.package)
+        )
 
     def on_save(self) -> None:
         self.save_tot()
@@ -177,20 +180,20 @@ class QPackageDialog(QDialog):
 
     def add_flight(self, flight: Flight) -> None:
         """Adds the new flight to the package."""
-        self.game.aircraft_inventory.claim_for_flight(flight)
         self.package_model.add_flight(flight)
         planner = FlightPlanBuilder(
-            self.game, self.package_model.package, is_player=True
+            self.package_model.package, self.game.blue, self.game.theater
         )
         try:
             planner.populate_flight_plan(flight)
+            self.package_model.update_tot()
+            EventStream.put_nowait(GameUpdateEvents().new_flight(flight))
         except PlanningError as ex:
             self.package_model.delete_flight(flight)
             logging.exception("Could not create flight")
             QMessageBox.critical(
                 self, "Could not create flight", str(ex), QMessageBox.Ok
             )
-        self.package_model.update_tot()
         # noinspection PyUnresolvedReferences
         self.package_changed.emit()
 
@@ -200,7 +203,7 @@ class QPackageDialog(QDialog):
         if flight is None:
             logging.error(f"Cannot delete flight when no flight is selected.")
             return
-        self.package_model.delete_flight(flight)
+        self.package_model.cancel_or_abort_flight(flight)
         # noinspection PyUnresolvedReferences
         self.package_changed.emit()
 
@@ -216,7 +219,9 @@ class QNewPackageDialog(QPackageDialog):
     ) -> None:
         super().__init__(
             game_model,
-            PackageModel(Package(target, auto_asap=True), game_model),
+            PackageModel(
+                Package(target, game_model.game.db.flights, auto_asap=True), game_model
+            ),
             parent=parent,
         )
         self.ato_model = model
@@ -251,8 +256,7 @@ class QNewPackageDialog(QPackageDialog):
     def on_cancel(self) -> None:
         super().on_cancel()
         for flight in self.package_model.package.flights:
-            self.game.aircraft_inventory.return_from_flight(flight)
-            flight.clear_roster()
+            self.package_model.cancel_or_abort_flight(flight)
 
 
 class QEditPackageDialog(QPackageDialog):
@@ -280,5 +284,5 @@ class QEditPackageDialog(QPackageDialog):
     def on_delete(self) -> None:
         """Removes the viewed package from the ATO."""
         # The ATO model returns inventory for us when deleting a package.
-        self.ato_model.delete_package(self.package_model.package)
+        self.ato_model.cancel_or_abort_package(self.package_model.package)
         self.close()

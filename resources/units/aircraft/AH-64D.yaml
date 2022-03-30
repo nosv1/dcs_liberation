@@ -1,4 +1,5 @@
 always_keeps_gun: true
+lha_capable: true
 description: The legendary 'Apache' is an US twin-turboshaft attack helicopter for
   a crew of two. It features a nose-mounted sensor suite for target acquisition and
   night vision systems. It is armed with a 30 mm (1.18 in) M230 chain gun carried
@@ -15,4 +16,4 @@ origin: USA
 price: 20
 role: Attack
 variants:
-  AH-64D Apache Longbow: {}
+  AH-64D Apache Longbow (AI): {}

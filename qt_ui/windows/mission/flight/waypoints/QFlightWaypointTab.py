@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Any
 
 from PySide2.QtCore import Signal
 from PySide2.QtWidgets import (
@@ -12,15 +12,16 @@ from PySide2.QtWidgets import (
 )
 
 from game import Game
-from gen.ato import Package
-from gen.flights.flight import Flight, FlightType, FlightWaypoint
-from gen.flights.flightplan import (
-    CustomFlightPlan,
-    FlightPlanBuilder,
-    PlanningError,
-    StrikeFlightPlan,
-)
-from gen.flights.loadouts import Loadout
+from game.ato.flight import Flight
+from game.ato.flightplans.custom import CustomFlightPlan, CustomLayout
+from game.ato.flightplans.flightplan import FlightPlan
+from game.ato.flightplans.flightplanbuilder import FlightPlanBuilder
+from game.ato.flightplans.formationattack import FormationAttackFlightPlan
+from game.ato.flightplans.planningerror import PlanningError
+from game.ato.flighttype import FlightType
+from game.ato.flightwaypoint import FlightWaypoint
+from game.ato.loadouts import Loadout
+from game.ato.package import Package
 from qt_ui.windows.mission.flight.waypoints.QFlightWaypointList import (
     QFlightWaypointList,
 )
@@ -37,7 +38,7 @@ class QFlightWaypointTab(QFrame):
         self.game = game
         self.package = package
         self.flight = flight
-        self.planner = FlightPlanBuilder(self.game, package, is_player=True)
+        self.planner = FlightPlanBuilder(package, game.blue, game.theater)
 
         self.flight_waypoint_list: Optional[QFlightWaypointList] = None
         self.rtb_waypoint: Optional[QPushButton] = None
@@ -105,7 +106,7 @@ class QFlightWaypointTab(QFrame):
         # Need to degrade to a custom flight plan and remove the waypoint.
         # If the waypoint is a target waypoint and is not the last target
         # waypoint, we don't need to degrade.
-        if isinstance(self.flight.flight_plan, StrikeFlightPlan):
+        if isinstance(self.flight.flight_plan, FormationAttackFlightPlan):
             is_target = waypoint in self.flight.flight_plan.targets
             if is_target and len(self.flight.flight_plan.targets) > 1:
                 self.flight.flight_plan.targets.remove(waypoint)
@@ -113,7 +114,7 @@ class QFlightWaypointTab(QFrame):
 
         self.degrade_to_custom_flight_plan()
         assert isinstance(self.flight.flight_plan, CustomFlightPlan)
-        self.flight.flight_plan.custom_waypoints.remove(waypoint)
+        self.flight.flight_plan.layout.custom_waypoints.remove(waypoint)
 
     def on_fast_waypoint(self):
         self.subwindow = QPredefinedWaypointSelectionWindow(
@@ -127,7 +128,7 @@ class QFlightWaypointTab(QFrame):
             return
         self.degrade_to_custom_flight_plan()
         assert isinstance(self.flight.flight_plan, CustomFlightPlan)
-        self.flight.flight_plan.custom_waypoints.extend(waypoints)
+        self.flight.flight_plan.layout.custom_waypoints.extend(waypoints)
         self.flight_waypoint_list.update_list()
         self.on_change()
 
@@ -135,16 +136,14 @@ class QFlightWaypointTab(QFrame):
         rtb = self.planner.generate_rtb_waypoint(self.flight, self.flight.from_cp)
         self.degrade_to_custom_flight_plan()
         assert isinstance(self.flight.flight_plan, CustomFlightPlan)
-        self.flight.flight_plan.custom_waypoints.append(rtb)
+        self.flight.flight_plan.layout.custom_waypoints.append(rtb)
         self.flight_waypoint_list.update_list()
         self.on_change()
 
     def degrade_to_custom_flight_plan(self) -> None:
         if not isinstance(self.flight.flight_plan, CustomFlightPlan):
-            self.flight.flight_plan = CustomFlightPlan(
-                package=self.flight.package,
-                flight=self.flight,
-                custom_waypoints=self.flight.flight_plan.waypoints,
+            self.flight.flight_plan: FlightPlan[Any] = CustomFlightPlan(
+                self, CustomLayout(custom_waypoints=self.flight.flight_plan.waypoints)
             )
 
     def confirm_recreate(self, task: FlightType) -> None:

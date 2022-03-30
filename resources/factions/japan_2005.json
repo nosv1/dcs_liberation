@@ -9,6 +9,7 @@
   "aircrafts": [
     "AH-1W SuperCobra",
     "AH-64D Apache Longbow",
+    "AH-64D Apache Longbow (AI)",
     "C-130",
     "C-130J-30 Super Hercules",
     "F-15J Eagle",
@@ -43,32 +44,25 @@
     "Infantry M249",
     "Infantry M4"
   ],
-  "air_defenses": [
-    "GepardGenerator",
-    "HawkGenerator",
-    "PatriotGenerator"
+  "preset_groups": [
+    "Hawk",
+    "Patriot"
   ],
-  "ewrs": [
-    "PatriotEwrGenerator"
+  "naval_units": [
+    "DDG Arleigh Burke IIa",
+    "CG Ticonderoga",
+    "LHA-1 Tarawa"
   ],
-  "aircraft_carrier": [],
-  "helicopter_carrier": [
-    "LHA_Tarawa"
-  ],
-  "destroyers": [
-    "USS_Arleigh_Burke_IIa"
-  ],
-  "cruisers": [
-    "TICONDEROG"
+  "missiles": [],
+  "air_defense_units": [
+    "SAM Patriot STR",
+    "Flakpanzer Gepard"
   ],
   "requirements": {},
   "carrier_names": [],
   "helicopter_carrier_names": [
     "Hyuga",
     "Ise"
-  ],
-  "navy_generators": [
-    "ArleighBurkeGroupGenerator"
   ],
   "has_jtac": true,
   "jtac_unit": "MQ-9 Reaper"

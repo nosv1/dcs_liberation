@@ -1,5 +1,6 @@
-from dcs.unit import Unit
 from dcs.vehicles import AirDefence
+
+from game.theater.theatergroup import TheaterUnit
 
 
 class AlicCodes:
@@ -25,6 +26,7 @@ class AlicCodes:
         AirDefence.SNR_75V.id: 126,
         AirDefence.HQ_7_LN_SP.id: 127,
         AirDefence.HQ_7_STR_SP.id: 128,
+        AirDefence.RLS_19J6.id: 130,
         AirDefence.Roland_ADS.id: 201,
         AirDefence.Patriot_str.id: 202,
         AirDefence.Hawk_sr.id: 203,
@@ -33,8 +35,9 @@ class AlicCodes:
         AirDefence.Hawk_cwar.id: 206,
         AirDefence.Gepard.id: 207,
         AirDefence.Vulcan.id: 208,
+        AirDefence.NASAMS_Radar_MPQ64F1.id: 209,
     }
 
     @classmethod
-    def code_for(cls, unit: Unit) -> int:
-        return cls.CODES[unit.type]
+    def code_for(cls, unit: TheaterUnit) -> int:
+        return cls.CODES[unit.type.id]

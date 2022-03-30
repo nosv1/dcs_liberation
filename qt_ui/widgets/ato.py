@@ -1,5 +1,6 @@
 """Widgets for displaying air tasking orders."""
 import logging
+from datetime import timedelta
 from typing import Optional
 
 from PySide2.QtCore import (
@@ -24,17 +25,17 @@ from PySide2.QtWidgets import (
     QVBoxLayout,
 )
 
-from gen.ato import Package
-from gen.flights.flight import Flight
-from gen.flights.traveltime import TotEstimator
-from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
+from game.ato.flight import Flight
+from game.ato.package import Package
+from game.server import EventStream
+from game.sim import GameUpdateEvents
 from ..delegates import TwoColumnRowDelegate
 from ..models import AtoModel, GameModel, NullListModel, PackageModel
 
 
 class FlightDelegate(TwoColumnRowDelegate):
     def __init__(self, package: Package) -> None:
-        super().__init__(rows=2, columns=2, font_size=10)
+        super().__init__(rows=3, columns=2, font_size=10)
         self.package = package
 
     @staticmethod
@@ -44,9 +45,7 @@ class FlightDelegate(TwoColumnRowDelegate):
     def text_for(self, index: QModelIndex, row: int, column: int) -> str:
         flight = self.flight(index)
         if (row, column) == (0, 0):
-            estimator = TotEstimator(self.package)
-            delay = estimator.mission_start_time(flight)
-            return f"{flight} in {delay}"
+            return f"{flight}"
         elif (row, column) == (0, 1):
             clients = self.num_clients(index)
             return f"Player Slots: {clients}" if clients else ""
@@ -58,6 +57,8 @@ class FlightDelegate(TwoColumnRowDelegate):
         elif (row, column) == (1, 1):
             missing_pilots = flight.missing_pilots
             return f"Missing pilots: {flight.missing_pilots}" if missing_pilots else ""
+        elif (row, column) == (2, 0):
+            return flight.state.description.title()
         return ""
 
     def num_clients(self, index: QModelIndex) -> int:
@@ -127,9 +128,8 @@ class QFlightList(QListView):
             parent=self.window(),
         )
 
-    def delete_flight(self, index: QModelIndex) -> None:
-        self.package_model.delete_flight_at_index(index)
-        GameUpdateSignal.get_instance().redraw_flight_paths()
+    def cancel_or_abort_flight(self, index: QModelIndex) -> None:
+        self.package_model.cancel_or_abort_flight_at_index(index)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         index = self.indexAt(event.pos())
@@ -141,7 +141,7 @@ class QFlightList(QListView):
         menu.addAction(edit_action)
 
         delete_action = QAction(f"Delete")
-        delete_action.triggered.connect(lambda: self.delete_flight(index))
+        delete_action.triggered.connect(lambda: self.cancel_or_abort_flight(index))
         menu.addAction(delete_action)
 
         menu.exec_(event.globalPos())
@@ -180,10 +180,10 @@ class QFlightPanel(QGroupBox):
         self.edit_button.clicked.connect(self.on_edit)
         self.button_row.addWidget(self.edit_button)
 
-        self.delete_button = QPushButton("Delete")
+        self.delete_button = QPushButton("Cancel")
         # noinspection PyTypeChecker
         self.delete_button.setProperty("style", "btn-danger")
-        self.delete_button.clicked.connect(self.on_delete)
+        self.delete_button.clicked.connect(self.on_cancel_flight)
         self.button_row.addWidget(self.delete_button)
 
         self.selection_changed.connect(self.on_selection_changed)
@@ -208,14 +208,19 @@ class QFlightPanel(QGroupBox):
         self.edit_button.setEnabled(enabled)
         self.delete_button.setEnabled(enabled)
         self.change_map_flight_selection(index)
+        delete_text = "Cancel"
+        if (flight := self.flight_list.selected_item) is not None:
+            if not flight.state.cancelable:
+                delete_text = "Abort"
+        self.delete_button.setText(delete_text)
 
-    @staticmethod
-    def change_map_flight_selection(index: QModelIndex) -> None:
+    def change_map_flight_selection(self, index: QModelIndex) -> None:
+        events = GameUpdateEvents()
         if not index.isValid():
-            GameUpdateSignal.get_instance().select_flight(None)
-            return
-
-        GameUpdateSignal.get_instance().select_flight(index.row())
+            events.deselect_flight()
+        else:
+            events.select_flight(self.package_model.flight_at_index(index))
+        EventStream.put_nowait(events)
 
     def on_edit(self) -> None:
         """Opens the flight edit dialog."""
@@ -225,18 +230,19 @@ class QFlightPanel(QGroupBox):
             return
         self.flight_list.edit_flight(index)
 
-    def on_delete(self) -> None:
+    def on_cancel_flight(self) -> None:
         """Removes the selected flight from the package."""
         index = self.flight_list.currentIndex()
         if not index.isValid():
             logging.error(f"Cannot delete flight when no flight is selected.")
             return
-        self.flight_list.delete_flight(index)
+        self.flight_list.cancel_or_abort_flight(index)
 
 
 class PackageDelegate(TwoColumnRowDelegate):
-    def __init__(self) -> None:
+    def __init__(self, game_model: GameModel) -> None:
         super().__init__(rows=2, columns=2)
+        self.game_model = game_model
 
     @staticmethod
     def package(index: QModelIndex) -> Package:
@@ -250,7 +256,16 @@ class PackageDelegate(TwoColumnRowDelegate):
             clients = self.num_clients(index)
             return f"Player Slots: {clients}" if clients else ""
         elif (row, column) == (1, 0):
-            return f"TOT T+{package.time_over_target}"
+            tot_delay = (
+                package.time_over_target - self.game_model.sim_controller.elapsed_time
+            )
+            if tot_delay >= timedelta():
+                return f"TOT in {tot_delay}"
+            game = self.game_model.game
+            if game is None:
+                raise RuntimeError("Package TOT has elapsed but no game is loaded")
+            tot_time = game.conditions.start_time + package.time_over_target
+            return f"TOT passed at {tot_time:%H:%M:%S}"
         elif (row, column) == (1, 1):
             unassigned_pilots = self.missing_pilots(index)
             return f"Missing pilots: {unassigned_pilots}" if unassigned_pilots else ""
@@ -268,11 +283,11 @@ class PackageDelegate(TwoColumnRowDelegate):
 class QPackageList(QListView):
     """List view for displaying the packages of an ATO."""
 
-    def __init__(self, model: AtoModel) -> None:
+    def __init__(self, game_model: GameModel, model: AtoModel) -> None:
         super().__init__()
         self.ato_model = model
         self.setModel(model)
-        self.setItemDelegate(PackageDelegate())
+        self.setItemDelegate(PackageDelegate(game_model))
         self.setIconSize(QSize(0, 0))
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.model().rowsInserted.connect(self.on_new_packages)
@@ -292,8 +307,7 @@ class QPackageList(QListView):
         Dialog.open_edit_package_dialog(self.ato_model.get_package_model(index))
 
     def delete_package(self, index: QModelIndex) -> None:
-        self.ato_model.delete_package_at_index(index)
-        GameUpdateSignal.get_instance().redraw_flight_paths()
+        self.ato_model.cancel_or_abort_package_at_index(index)
 
     def on_new_packages(self, _parent: QModelIndex, first: int, _last: int) -> None:
         # Select the newly created pacakges. This should only ever happen due to
@@ -331,9 +345,9 @@ class QPackagePanel(QGroupBox):
     delete buttons for package management.
     """
 
-    def __init__(self, model: AtoModel) -> None:
+    def __init__(self, game_model: GameModel, ato_model: AtoModel) -> None:
         super().__init__("Packages")
-        self.ato_model = model
+        self.ato_model = ato_model
         self.ato_model.layoutChanged.connect(self.on_current_changed)
 
         self.vbox = QVBoxLayout()
@@ -346,7 +360,7 @@ class QPackagePanel(QGroupBox):
         )
         self.vbox.addWidget(self.tip)
 
-        self.package_list = QPackageList(self.ato_model)
+        self.package_list = QPackageList(game_model, self.ato_model)
         self.vbox.addWidget(self.package_list)
 
         self.button_row = QHBoxLayout()
@@ -356,7 +370,7 @@ class QPackagePanel(QGroupBox):
         self.edit_button.clicked.connect(self.on_edit)
         self.button_row.addWidget(self.edit_button)
 
-        self.delete_button = QPushButton("Delete")
+        self.delete_button = QPushButton("Cancel/abort")
         # noinspection PyTypeChecker
         self.delete_button.setProperty("style", "btn-danger")
         self.delete_button.clicked.connect(self.on_delete)
@@ -380,14 +394,18 @@ class QPackagePanel(QGroupBox):
 
     def change_map_package_selection(self, index: QModelIndex) -> None:
         if not index.isValid():
-            GameUpdateSignal.get_instance().select_package(None)
+            EventStream.put_nowait(GameUpdateEvents().deselect_flight())
             return
 
         package = self.ato_model.get_package_model(index)
         if package.rowCount() == 0:
-            GameUpdateSignal.get_instance().select_package(None)
+            EventStream.put_nowait(GameUpdateEvents().deselect_flight())
         else:
-            GameUpdateSignal.get_instance().select_package(index.row())
+            EventStream.put_nowait(
+                GameUpdateEvents().select_flight(
+                    package.flight_at_index(package.index(0))
+                )
+            )
 
     def on_edit(self) -> None:
         """Opens the package edit dialog."""
@@ -418,7 +436,7 @@ class QAirTaskingOrderPanel(QSplitter):
         super().__init__(Qt.Vertical)
         self.ato_model = game_model.ato_model
 
-        self.package_panel = QPackagePanel(self.ato_model)
+        self.package_panel = QPackagePanel(game_model, self.ato_model)
         self.package_panel.current_changed.connect(self.on_package_change)
         self.addWidget(self.package_panel)
 

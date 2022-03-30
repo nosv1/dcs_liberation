@@ -1,27 +1,177 @@
-# 5.0.0
+# 6.0.0
 
-Saves from 3.x are not compatible with 5.0.
+Saves from 5.x are not compatible with 6.0.
 
 ## Features/Improvements
+
+* **[Mission Generation]** Added an option to fast-forward mission generation until the point of first contact (WIP).
+* **[Mission Generation]** Added performance option to not cull IADS when culling would effect how mission is played at target area.
+* **[Mission Generation]** Reworked the ground object generation which now uses a new layout system
+* **[Factions]** Updated the Faction file structure. Older custom faction files will not work correctly and have to be updated to the new structure.
+* **[Flight Planning]**  Added preset formations for different flight types at hold, join, ingress, and split waypoints.  Air to Air flights will tend toward line-abreast and spread-four formations.  Air to ground flights will tend towards trail formation.
+* **[Flight Planning]** Added the ability to plan tankers for recovery on package flights.  AI does not plan.
+* **[Flight Planning]** Air to Ground flights now have ECM enabled on lock at the join point, and SEAD/DEAD also have ECM enabled on detection and lock at ingress.
+* **[Flight Planning]** AWACS flightplan changed from orbit to a racetrack to reduce data link disconnects which were caused by blind spots as a result of the bank angle. 
+* **[UI]** Added options to the loadout editor for setting properties such as HMD choice.
 
 ## Fixes
 
-# 4.0.1
+* **[Mission Generation]** Fixed SA-13 incorrectly created as SA-8 Loading Unit which will not be spawned in the generated mission.
+* **[Mission Generation]** Fixed an issue which generated the helipads at FARPs incorrectly and placed the helicopters within each other.
 
-Saves from 4.0.0 are compatible with 4.0.1.
+# 5.2.0
+
+Saves from 5.1.0 are compatible with 5.2.0
 
 ## Features/Improvements
-* **[Plugins]** Increased time JTAC Autolase messages stay visible on the UI.
 
+* **[Engine]** Support for DCS 2.7.11.21408, including the new Apache AH-64D and the Syria map extension
+* **[Mission Generation]** Improved FARP Helipad handling and creation (now includes windsocks)
+* **[Modding]** Add UH-60L mod support
+* **[Modding]** Updated Community A-4E-C mod version support to 2.0.0 release. Version 1.4.2 is no longer compatible, unless the mod default loadouts are deleted/modified.
+* **[Modding]** Updated JAS-39-C mod support for v1.8.0-beta
+* **[Campaign]** Peace Spring, Vectron's Claw, Vegas Nerve, Scenic Route 2 campaign update
+* **[Campaign]** Added Tripoint Hostility campaign by Fuzzle
+* **[Campaign]** Add 3 new campaigns from Sith1144
+
+## Fixes
+
+* **[Mission Generation]** Fixed incorrect SA-5 and NASAMS threat range when TR destroyed. It will not count as threat anymore when the TR is dead.
+* **[Mission Generation]** Fixed "Max Threat Range" error
+* **[Mission Generation]** Fix unculled zones not updating when needed
+* **[Mission Planner]** Now allows squadron transfers to control points where the number of free slots matches exactly the expected size of the transferring squadron next turn.
+* **[Data]** Removed Fw 190 A-8 and D-9 from Germany 1940 and 1942 faction list for historical accuracy.
+* **[Data]** Updated Loadouts for Tornado GR4, F-15E and F-16C
+* **[Data]** Corrected some unit data
+* **[UI]** Fixed various UI issues (for example Scaling and HighDPI)
+* **[UI]** Typhoon GR4 and IDS images
+
+# 5.1.0
+
+Saves from 5.0.0 are compatible with 5.1.0
+
+## Features/Improvements
+
+* **[Engine]** Support for DCS 2.7.9.17830 and newer, including the HTS and ECM pod.
+* **[Campaign]** Add option to manually add and remove squadrons and different aircraft type in the new game wizard / air wing configuration dialog.
+* **[Mission Generation]** Add Option to enforce the Easy Communication setting for the mission
+* **[Mission Generation]** Add Option to select between only night missions, day missions or any time (default).
+* **[Modding]** Add F-104 mod support
+
+## Fixes
+
+* **[Campaign]** Fixed some minor issues in campaigns which generated error messages in the log.
+* **[Campaign]** Changed the way how map object / scenery kills where tracked. This fixes issues with kill recognition after map updates from ED which change the object ids and therefore prevent correct kill recognition.
+* **[Mission Generation]** Fixed incorrect radio specification for the AN/ARC-222.
+* **[Mission Generation]** Fixed mission scripting error when using a dedicated server.
+* **[Mission Generation]** Fixed an issue where empty convoys lead to an index error when a point capture made a pending transfer of units not completable anymore.
+* **[Mission Generation]** Corrected Viggen FR22 & FR24 preset channels for the DCS 2.7.9 update
+* **[Mission Generation]** Fixed the SA-5 Generator to use the P-19 FlatFace SR as a Fallback radar if the faction does not have access to the TinShield SR.
+* **[UI]** Enable / Disable the settings, save and stats actions if no game is loaded to prevent an error as these functions can only be used on a valid game.
+* **[UI]** Added missing icons for Tornado GR4, and Tornado IDS.
+
+# 5.0.0
+
+Saves from 4.x are not compatible with 5.0.
+
+## Features/Improvements
+
+* **[Campaign]** Weather! Theaters now experience weather that is more realistic for the region and its current season. For example, Persian Gulf will have very hot, sunny summers and Marianas will experience lots of rain during fall. These changes affect pressure, temperature, clouds and precipitation. Additionally, temperature will drop during the night, by an amount that is somewhat realistic for the region.
+* **[Campaign]** Weapon data such as fallbacks and introduction years is now moddable. Due to the new architecture to support this, the old data was not automatically migrated.
+* **[Campaign]** Era-restricted loadouts will now skip LGBs when no TGP is available in the loadout. This only applies to default loadouts; buddy-lasing can be coordinated with custom loadouts.
+* **[Campaign]** FOBs control point can have FARP/helipad slot and host helicopters. To enable this feature on a FOB, add "Invisible FARP" statics objects near the FOB location in the campaign definition file.
+* **[Campaign]** Squadrons now have a home base and will not operate out of other bases. See https://github.com/dcs-liberation/dcs_liberation/issues/1145 for status.
+* **[Campaign]** Aircraft now belong to squadrons rather than bases to support squadron location transfers.
+* **[Campaign]** Skipped turns are no longer counted as defeats on front lines.
+* **[Campaign AI]** Overhauled campaign AI target prioritization.
+* **[Campaign AI]** Player front line stances can now be automated. Improved stance selection for AI.
+* **[Campaign AI]** Reworked layout of hold, join, split, and ingress points. Should result in much shorter flight plans in general while still maintaining safe join/split/hold points.
+* **[Campaign AI]** Auto-planning mission range limits are now specified per-aircraft. On average this means that longer range missions will now be plannable. The limit only accounts for the direct distance to the target, not the path taken.
+* **[Campaign AI]** Transport aircraft will now be bought only if necessary at control points which can produce ground units and are capable to operate transport aircraft.
+* **[Campaign AI]** Aircraft will now only be automatically purchased or assigned at appropriate bases. Naval aircraft will default to only operating from carriers, Harriers will default to LHAs and shore bases, helicopters will operate from anywhere. This can be customized per-squadron.
+* **[Engine]** Support for DCS 2.7.7.14727 and newer, including support for F-16 CBU-105s, SA-5s, and the Forrestal.
+* **[Kneeboard]** Minimum required fuel estimates have been added to the kneeboard for aircraft with supporting data (currently only the Hornet and Viper).
+* **[Kneeboard]** QNH (pressure MSL) and temperature have been added to the kneeboard.
+* **[Mission Generation]** EWRs are now also headed towards the center of the conflict
+* **[Mission Generation]** FACs can now use FC3 compatible laser codes. Note that this setting is global, not per FAC.
+* **[Modding]** Can now install custom campaigns to <DCS saved games>/Liberation/Campaigns instead of the Liberation install directory.
+* **[Modding]** Campaigns can now define a default start date.
+* **[Modding]** Campaigns now specify the squadrons that are present in the campaign, their roles, and their starting bases. Players can customize this at game start but the campaign will choose the defaults.
+* **[New Game Wizard]** Can now customize the player's air wing before campaign start to disable, relocate, or rename squadrons.
+* **[Plugins]** Updated SkynetIADS to 2.4.0 (adds SA-5 support).
+* **[UI]** Sell Button for aircraft will be disabled if there are no units available to be sold or all are already assigned to a mission
+* **[UI]** Enemy aircraft inventory now viewable in the air wing menu.
+
+## Fixes
+
+* **[Campaign]** Naval control points will no longer claim ground objectives during campaign generation and prevent them from spawning.
+* **[Campaign]** Units aboard sunk cargo ships will now have their losses tracked properly.
+* **[Mission Generation]** Mission results and other files will now be opened with enforced utf-8 encoding to prevent an issue where destroyed ground units were untracked because of special characters in their names.
+* **[Mission Generation]** Fixed generation of landing waypoints so that the AI obeys them.
+* **[Mission Generation]** AI carrier aircraft with a start time of T+0 will now start at T+1s to avoid traffic jams.
+* **[Mission Generation]** Fixed cases of unused aircraft not being spawned at airfields as soon as any airport filled up.
+* **[Mission Generation]** Fixed cases with multiple client flights of the same airframe all received the same preset channels.
+* **[Mission Generation]** F-14A is now generated with stored alignment.
+* **[Mission Generation]** Su-33s set to cold or warm start on the Kuznetsov will always be generated as runway starts to avoid the AI getting stuck.
+* **[Mission Generation]** Fixed AI not receiving anti-ship tasks against carriers and LHAs.
+* **[Mods]** Fixed broken A-4 support causing no weapons to be available.
+* **[UI]** Selling of Units is now visible again in the UI dialog and shows the correct amount of sold units
+* **[UI]** Fixed bug where an incompatible campaign could be generated if no action is taken on the campaign selection screen.
+
+# 4.1.1
+
+Saves from 4.1.0 are compatible with 4.1.1.
+
+## Fixes
+
+* **[Campaign]** Fixed broken support for Mariana Islands map.
+* **[Mission Generation]** Fix SAM sites pointing towards the center of the conflict.
+* **[Flight Planning]** No longer using Su-34 for CAP missions.
+
+# 4.1.0
+
+Saves from 4.0.0 are compatible with 4.1.0.
+
+## Features/Improvements
+
+* **[Campaign]** Air defense sites now generate a fixed number of launchers per type.
+* **[Campaign]** Added support for Mariana Islands map.
+* **[Campaign AI]** Adjustments to aircraft selection priorities for most mission types.
+* **[Engine]** Support for DCS 2.7.4.9632 and newer, including the Marianas map, F-16 JSOWs, NASAMS, and Tin Shield EWR.
+* **[Flight Planning]** CAP patrol altitudes are now set per-aircraft. By default the altitude will be set based on the aircraft's maximum speed.
+* **[Flight Planning]** CAP patrol speeds are now set per-aircraft to be more suitable/sensible. By default the speed will be set based on the aircraft's maximum speed.
+* **[Mission Generation]** Improvements for better support of the Skynet Plugin and long range SAMs are now acting as EWR
+* **[Mission Generation]** SAM sites are now headed towards the center of the conflict
+* **[Mods]** Support for latest version of Gripen mod. In-progress campaigns may need to re-plan Gripen flights to pick up updated loadouts.
+* **[Plugins]** Increased time JTAC Autolase messages stay visible on the UI.
+* **[Plugins]** Updated SkynetIADS to 2.2.0 (adds NASAMS support).  
 * **[UI]** Added ability to take notes and have those notes appear as a kneeboard page.
 * **[UI]** Hovering over the weather information now dispalys the cloud base (meters and feet).
 * **[UI]** Google search link added to unit information when there is no information provided.
 * **[UI]** Control point name displayed with ground object group name on map.
+* **[UI]** Buy or Replace will now show the correct price for generated ground objects like sams.
+* **[UI]** Improved logging for frontline movement to be more descriptive about what happened and why.
+* **[UI]** Brought ruler map module into source, which should fix file integrity issues with the module.
 
 ## Fixes
-* **[UI]** Statistics window tick marks are now always integers.
 
+* **[Campaign]** Fixed the Silkworm generator to include launchers and not all radars.
+* **[Data]** Fixed Introduction dates for targeting pods (ATFLIR and LITENING were both a few years too early).
+* **[Data]** Removed SA-10 from Syria 2011 faction.
+* **[Economy]** EWRs can now be bought and sold for the correct price and can no longer be used to generate money
+* **[Flight Planning]** Helicopters are now correctly identified, and will fly ingress/CAS/BAI/egress and similar at low altitude.
 * **[Flight Planning]** Fixed potential issue with angles > 360° or < 0° being generated when summing two angles.
+* **[Mission Generation]** The lua data for other plugins is now generated correctly
+* **[Mission Generation]** Fixed problem with opfor planning missions against sold ground objects like SAMs
+* **[Mission Generation]** The legacy always-available tanker option no longer prevents mission creation.
+* **[Mission Generation]** Prevent the creation of a transfer order with 0 units for a rare situtation when a point was captured.
+* **[Mission Generation]** Planned transfers which will be impossible after a base capture will no longer prevent the mission result submit.
+* **[Mission Generation]** Fix occasional KeyError preventing mission generation when all units of the same type in a convoy were killed.
+* **[Mission Generation]** Fix for AAA Flak generator using Opel Blitz preventing the mission from being generated because duplicate unit names were used.
+* **[Mission Generation]** Fixed a potential bug with laser code generation where it would generate invalid codes.  
+* **[UI]** Statistics window tick marks are now always integers.
+* **[UI]** Statistics window now shows the correct info for the turn
+* **[UI]** Toggling custom loadout for an aircraft with no preset loadouts no longer breaks the flight.
 
 # 4.0.0
 

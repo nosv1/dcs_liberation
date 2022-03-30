@@ -11,6 +11,7 @@ analysis = Analysis(
         ('resources', 'resources'),
         ('resources/caucasus.p', 'dcs/terrain/'),
         ('resources/nevada.p', 'dcs/terrain/'),
+        ('client/build', 'client/build'),
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -36,7 +37,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
 )
 coll = COLLECT(
     exe,

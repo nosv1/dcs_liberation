@@ -1,11 +1,18 @@
 from pathlib import Path
 
 
+MAJOR_VERSION = 6
+MINOR_VERSION = 0
+MICRO_VERSION = 0
+
+
 def _build_version_string() -> str:
-    components = ["5.0.0"]
+    components = [
+        ".".join(str(v) for v in (MAJOR_VERSION, MINOR_VERSION, MICRO_VERSION))
+    ]
     build_number_path = Path("resources/buildnumber")
     if build_number_path.exists():
-        with build_number_path.open("r") as build_number_file:
+        with build_number_path.open("r", encoding="utf-8") as build_number_file:
             components.append(build_number_file.readline())
 
     if not Path("resources/final").exists():
@@ -96,4 +103,36 @@ VERSION = _build_version_string()
 #:   mission using map buildings as strike targets must check and potentially recreate
 #:   all those objectives. This definitely affects all Syria campaigns, other maps are
 #:   not yet verified.
-CAMPAIGN_FORMAT_VERSION = (7, 0)
+#:
+#: Version 7.1
+#: * Support for Mariana Islands terrain
+#:
+#: Version 8.0
+#: * DCS 2.7.4.9632 changed scenery target IDs. Any mission using map buildings as
+#:   strike targets must check and potentially recreate all those objectives.
+#:
+#: Version 8.1
+#: * You can now add "Invisible FARP" static to FOB to add helicopter slots
+#:
+#: Version 9.0
+#: * Campaign files now define the initial squadron layouts. See
+#:   https://github.com/dcs-liberation/dcs_liberation/wiki/Custom-Campaigns.
+#: * CV and LHA control points now get their names from the group name in the campaign
+#:   miz.
+#:
+#: Version 9.1
+#: * Campaign files can optionally define a start date with
+#:   `recommended_start_date: YYYY-MM-DD`.
+#:
+#: Version 9.2
+#: * Squadrons defined in campaign files can optionally setup squadrons' name,
+#:   nickname and/or generated female pilot name percentage
+#:
+#: Version 10.0
+#: * The new introduced layout system extends the mission generation so that a
+#:   campaign designer can now define the heading of the ground objects which will be
+#:   also used later in mission generation to orient the group accordingly.
+#:   This removes the randomization of the orientation from the generation.
+#:   Most campaigns will not need any updates and will work out of the box.
+#:
+CAMPAIGN_FORMAT_VERSION = (10, 0)

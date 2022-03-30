@@ -11,6 +11,7 @@
     "C-130",
     "CH-47D",
     "CH-53E",
+    "F-14A Tomcat (AI)",
     "F-14A Tomcat (Block 135-GR Late)",
     "F-4E Phantom II",
     "F-5E Tiger II",
@@ -40,17 +41,22 @@
     "Infantry M249",
     "Infantry M4"
   ],
-  "air_defenses": [
-    "ChaparralGenerator",
-    "EarlyColdWarFlakGenerator",
-    "HawkGenerator",
-    "VulcanGenerator"
+  "missiles": [],
+  "preset_groups": [
+    "Hawk",
+    "Cold-War-Flak"
   ],
-  "ewrs": [
-    "HawkEwrGenerator"
+  "naval_units": [
+    "FFG Oliver Hazard Perry",
+    "CV-59 Forrestal"
   ],
-  "navy_generators": [
-    "OliverHazardPerryGroupGenerator"
+  "air_defense_units": [
+    "SAM Hawk SR (AN/MPQ-50)",
+    "M163 Vulcan Air Defense System",
+    "M48 Chaparral"
+  ],
+  "carrier_names": [
+    "CVN-59 Forrestal"
   ],
   "requirements": {},
   "doctrine": "coldwar"

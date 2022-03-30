@@ -3,51 +3,68 @@ name: Build
 on: [push, pull_request]
 
 jobs:
-
   build:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
-      with:
-        submodules: true
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
 
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.9
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.10"
 
-    - name: Install environment
-      run: |
-        python -m venv ./venv
+      - name: Set up Node
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16"
 
-    - name: Install dependencies
-      run: |
-        ./venv/scripts/activate
-        python -m pip install -r requirements.txt
-        # For some reason the shiboken2.abi3.dll is not found properly, so I copy it instead
-        Copy-Item .\venv\Lib\site-packages\shiboken2\shiboken2.abi3.dll .\venv\Lib\site-packages\PySide2\ -Force
+      - name: Install environment
+        run: |
+          python -m venv ./venv
 
-    - name: mypy game
-      run: |
-        ./venv/scripts/activate
-        mypy game
+      - name: Install dependencies
+        run: |
+          ./venv/scripts/activate
+          python -m pip install -r requirements.txt
+          # For some reason the shiboken2.abi3.dll is not found properly, so I copy it instead
+          Copy-Item .\venv\Lib\site-packages\shiboken2\shiboken2.abi3.dll .\venv\Lib\site-packages\PySide2\ -Force
 
-    - name: mypy gen
-      run: |
-        ./venv/scripts/activate
-        mypy gen
-      
-    - name: update build number
-      run: |
-        [IO.File]::WriteAllLines($pwd.path + "\resources\buildnumber", $env:GITHUB_RUN_NUMBER)
+      - name: mypy game
+        run: |
+          ./venv/scripts/activate
+          mypy game
 
-    - name: Build binaries
-      run: |
-        ./venv/scripts/activate
-        $env:PYTHONPATH=".;./pydcs"
-        pyinstaller pyinstaller.spec
+      - name: mypy tests
+        run: |
+          ./venv/scripts/activate
+          mypy tests
 
-    - uses: actions/upload-artifact@v2
-      with:
-        name: dcs_liberation
-        path: dist/
+      - name: update build number
+        run: |
+          [IO.File]::WriteAllLines($pwd.path + "\resources\buildnumber", $env:GITHUB_RUN_NUMBER)
+
+      - name: npm ci
+        run: |
+          cd client
+          npm ci
+
+      - name: Build client
+        run: |
+          cd client
+          npm run build
+
+      - name: Build binaries
+        run: |
+          ./venv/scripts/activate
+          $env:PYTHONPATH=".;./pydcs"
+          pyinstaller pyinstaller.spec
+
+      - name: Create archive
+        run: Compress-Archive -Path .\dist\dcs_liberation\ -DestinationPath dist\dcs_liberation.zip
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: dcs_liberation
+          path: dist/dcs_liberation.zip

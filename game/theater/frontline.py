@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
-from typing import Iterator, List, Tuple
+from typing import Any, Iterator, List, TYPE_CHECKING, Tuple
 
 from dcs.mapping import Point
 
-from gen.flights.flight import FlightType
-from .controlpoint import (
-    ControlPoint,
-    MissionTarget,
-)
-from ..utils import pairwise
+from .missiontarget import MissionTarget
+from ..utils import Heading, pairwise
+
+if TYPE_CHECKING:
+    from game.ato import FlightType
+    from .controlpoint import ControlPoint
 
 
 FRONTLINE_MIN_CP_DISTANCE = 5000
@@ -27,9 +28,9 @@ class FrontLineSegment:
     point_b: Point
 
     @property
-    def attack_heading(self) -> float:
+    def attack_heading(self) -> Heading:
         """The heading of the frontline segment from player to enemy control point"""
-        return self.point_a.heading_between_point(self.point_b)
+        return Heading.from_degrees(self.point_a.heading_between_point(self.point_b))
 
     @property
     def attack_distance(self) -> float:
@@ -49,6 +50,7 @@ class FrontLine(MissionTarget):
         blue_point: ControlPoint,
         red_point: ControlPoint,
     ) -> None:
+        self.id = uuid.uuid4()
         self.blue_cp = blue_point
         self.red_cp = red_point
         try:
@@ -66,18 +68,39 @@ class FrontLine(MissionTarget):
         self.segments: List[FrontLineSegment] = [
             FrontLineSegment(a, b) for a, b in pairwise(route)
         ]
-        self.name = f"Front line {blue_point}/{red_point}"
+        super().__init__(
+            f"Front line {blue_point}/{red_point}", self._compute_position()
+        )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, FrontLine):
+            return False
+        return (self.blue_cp, self.red_cp) == (other.blue_cp, other.red_cp)
+
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def _compute_position(self) -> Point:
+        return self.point_from_a(self._position_distance)
+
+    def update_position(self) -> None:
+        self.position = self._compute_position()
+
+    def control_point_friendly_to(self, player: bool) -> ControlPoint:
+        if player:
+            return self.blue_cp
+        return self.red_cp
 
     def control_point_hostile_to(self, player: bool) -> ControlPoint:
-        if player:
-            return self.red_cp
-        return self.blue_cp
+        return self.control_point_friendly_to(not player)
 
     def is_friendly(self, to_player: bool) -> bool:
         """Returns True if the objective is in friendly territory."""
         return False
 
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
+        from game.ato import FlightType
+
         yield from [
             FlightType.CAS,
             FlightType.AEWC,
@@ -86,14 +109,6 @@ class FrontLine(MissionTarget):
             # TODO: FlightType.EVAC
         ]
         yield from super().mission_types(for_player)
-
-    @property
-    def position(self):
-        """
-        The position where the conflict should occur
-        according to the current strength of each control point.
-        """
-        return self.point_from_a(self._position_distance)
 
     @property
     def points(self) -> Iterator[Point]:
@@ -107,12 +122,12 @@ class FrontLine(MissionTarget):
         return self.blue_cp, self.red_cp
 
     @property
-    def attack_distance(self):
+    def attack_distance(self) -> float:
         """The total distance of all segments"""
         return sum(i.attack_distance for i in self.segments)
 
     @property
-    def attack_heading(self):
+    def attack_heading(self) -> Heading:
         """The heading of the active attack segment from player to enemy control point"""
         return self.active_segment.attack_heading
 
@@ -139,16 +154,19 @@ class FrontLine(MissionTarget):
         """
         if distance < self.segments[0].attack_distance:
             return self.blue_cp.position.point_from_heading(
-                self.segments[0].attack_heading, distance
+                self.segments[0].attack_heading.degrees, distance
             )
         remaining_dist = distance
         for segment in self.segments:
             if remaining_dist < segment.attack_distance:
                 return segment.point_a.point_from_heading(
-                    segment.attack_heading, remaining_dist
+                    segment.attack_heading.degrees, remaining_dist
                 )
             else:
                 remaining_dist -= segment.attack_distance
+        raise RuntimeError(
+            f"Could not find front line point {distance} from {self.blue_cp}"
+        )
 
     @property
     def _position_distance(self) -> float:
@@ -178,3 +196,15 @@ class FrontLine(MissionTarget):
         ):
             distance = FRONTLINE_MIN_CP_DISTANCE
         return distance
+
+    @staticmethod
+    def sort_control_points(
+        a: ControlPoint, b: ControlPoint
+    ) -> tuple[ControlPoint, ControlPoint]:
+        if a.is_friendly_to(b):
+            raise ValueError(
+                "Cannot sort control points that are friendly to each other"
+            )
+        if a.captured:
+            return a, b
+        return b, a

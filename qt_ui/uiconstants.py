@@ -34,6 +34,7 @@ def load_icons():
     ICONS["Github"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/github.png"
     )
+    ICONS["Ukraine"] = QPixmap("./resources/ui/misc/ukraine.png")
 
     ICONS["Control Points"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/circle.png"
@@ -68,6 +69,7 @@ def load_icons():
     ICONS["Terrain_Normandy"] = QPixmap("./resources/ui/terrain_normandy.gif")
     ICONS["Terrain_TheChannel"] = QPixmap("./resources/ui/terrain_channel.gif")
     ICONS["Terrain_Syria"] = QPixmap("./resources/ui/terrain_syria.gif")
+    ICONS["Terrain_MarianaIslands"] = QPixmap("./resources/ui/terrain_marianas.gif")
 
     ICONS["Dawn"] = QPixmap("./resources/ui/conditions/timeofday/dawn.png")
     ICONS["Day"] = QPixmap("./resources/ui/conditions/timeofday/day.png")
@@ -77,6 +79,7 @@ def load_icons():
     ICONS["Money"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/money_icon.png"
     )
+    ICONS["Campaign Management"] = ICONS["Money"]
     ICONS["PassTurn"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/hourglass.png"
     )
@@ -96,9 +99,11 @@ def load_icons():
     ICONS["Generator"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/generator.png"
     )
+    ICONS["Mission Generation"] = ICONS["Generator"]
     ICONS["Missile"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/missile.png"
     )
+    ICONS["Difficulty"] = ICONS["Missile"]
     ICONS["Cheat"] = QPixmap("./resources/ui/misc/" + get_theme_icons() + "/cheat.png")
     ICONS["Plugins"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/plugins.png"
@@ -107,6 +112,9 @@ def load_icons():
         "./resources/ui/misc/" + get_theme_icons() + "/pluginsoptions.png"
     )
     ICONS["Notes"] = QPixmap("./resources/ui/misc/" + get_theme_icons() + "/notes.png")
+    ICONS["Reload"] = QPixmap(
+        "./resources/ui/misc/" + get_theme_icons() + "/reload.png"
+    )
 
     ICONS["TaskCAS"] = QPixmap("./resources/ui/tasks/cas.png")
     ICONS["TaskCAP"] = QPixmap("./resources/ui/tasks/cap.png")
@@ -157,6 +165,8 @@ def load_icons():
     ICONS["Weather_night-totally-cloud"] = QPixmap(
         "./resources/ui/conditions/weather/night-totally-cloud.png"
     )
+
+    ICONS["heading"] = QPixmap("./resources/ui/misc/heading.png")
 
 
 EVENT_ICONS: Dict[str, QPixmap] = {}

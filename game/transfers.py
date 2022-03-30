@@ -36,38 +36,30 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import singledispatchmethod
-from typing import (
-    Generic,
-    Iterator,
-    List,
-    Optional,
-    TYPE_CHECKING,
-    TypeVar,
-    Sequence,
-)
+from typing import Generic, Iterator, List, Optional, Sequence, TYPE_CHECKING, TypeVar
 
 from dcs.mapping import Point
 
+from game.ato.ai_flight_planner_db import aircraft_for_task
+from game.ato.closestairfields import ObjectiveDistanceCache
+from game.ato.flight import Flight
+from game.ato.flightplans.flightplanbuilder import FlightPlanBuilder
+from game.ato.flighttype import FlightType
+from game.ato.package import Package
 from game.dcs.aircrafttype import AircraftType
 from game.dcs.groundunittype import GroundUnitType
+from game.naming import namegen
 from game.procurement import AircraftProcurementRequest
-from game.squadrons import Squadron
 from game.theater import ControlPoint, MissionTarget
 from game.theater.transitnetwork import (
     TransitConnection,
     TransitNetwork,
 )
 from game.utils import meters, nautical_miles
-from gen.ato import Package
-from gen.flights.ai_flight_planner_db import aircraft_for_task
-from gen.flights.closestairfields import ObjectiveDistanceCache
-from gen.flights.flight import Flight, FlightType
-from gen.flights.flightplan import FlightPlanBuilder
-from gen.naming import namegen
 
 if TYPE_CHECKING:
     from game import Game
-    from game.inventory import ControlPointAircraftInventory
+    from game.squadrons import Squadron
 
 
 class Transport:
@@ -130,7 +122,10 @@ class TransferOrder:
     def kill_unit(self, unit_type: GroundUnitType) -> None:
         if unit_type not in self.units or not self.units[unit_type]:
             raise KeyError(f"{self} has no {unit_type} remaining")
-        self.units[unit_type] -= 1
+        if self.units[unit_type] == 1:
+            del self.units[unit_type]
+        else:
+            self.units[unit_type] -= 1
 
     @property
     def size(self) -> int:
@@ -163,21 +158,58 @@ class TransferOrder:
             return self.transport.find_escape_route()
         return None
 
-    def proceed(self) -> None:
-        if not self.destination.is_friendly(self.player):
-            logging.info(f"Transfer destination {self.destination} was captured.")
-            if self.position.is_friendly(self.player):
-                self.disband_at(self.position)
-            elif (escape_route := self.find_escape_route()) is not None:
-                self.disband_at(escape_route)
-            else:
-                logging.info(
-                    f"No escape route available. Units were surrounded and destroyed "
-                    "during transfer."
-                )
-                self.kill_all()
-            return
+    def disband(self) -> None:
+        """
+        Disbands the specific transfer at the current position if friendly, at a
+        possible escape route or kills all units if none is possible
+        """
+        if self.position.is_friendly(self.player):
+            self.disband_at(self.position)
+        elif (escape_route := self.find_escape_route()) is not None:
+            self.disband_at(escape_route)
+        else:
+            logging.info(
+                f"No escape route available. Units were surrounded and destroyed "
+                "during transfer."
+            )
+            self.kill_all()
 
+    def is_completable(self, network: TransitNetwork) -> bool:
+        """
+        Checks if the transfer can be completed with the current theater state / transit
+        network to ensure that there is possible route between the current position and
+        the planned destination. This also ensures that the points are friendly.
+        """
+        if self.transport is None:
+            # Check if unplanned transfers could be completed
+            if not self.position.is_friendly(self.player):
+                logging.info(
+                    f"Current position ({self.position}) "
+                    f"of the halting transfer was captured."
+                )
+                return False
+            if not network.has_path_between(self.position, self.destination):
+                logging.info(
+                    f"Destination of transfer ({self.destination}) "
+                    f"can not be reached anymore."
+                )
+                return False
+
+        if self.transport is not None and not self.next_stop.is_friendly(self.player):
+            # check if already proceeding transfers can reach the next stop
+            logging.info(
+                f"The next stop of the transfer ({self.next_stop}) "
+                f"was captured while transfer was on route."
+            )
+            return False
+
+        return True
+
+    def proceed(self) -> None:
+        """
+        Let the transfer proceed to the next stop and disbands it if the next stop
+        is the destination
+        """
         if self.transport is None:
             return
 
@@ -231,7 +263,7 @@ class AirliftPlanner:
         self.transfer = transfer
         self.next_stop = next_stop
         self.for_player = transfer.destination.captured
-        self.package = Package(target=next_stop, auto_asap=True)
+        self.package = Package(next_stop, game.db.flights, auto_asap=True)
 
     def compatible_with_mission(
         self, unit_type: AircraftType, airfield: ControlPoint
@@ -275,29 +307,20 @@ class AirliftPlanner:
             if cp.captured != self.for_player:
                 continue
 
-            inventory = self.game.aircraft_inventory.for_control_point(cp)
-            for unit_type, available in inventory.all_aircraft:
-                squadrons = air_wing.auto_assignable_for_task_with_type(
-                    unit_type, FlightType.TRANSPORT
-                )
-                for squadron in squadrons:
-                    if self.compatible_with_mission(unit_type, cp):
-                        while (
-                            available
-                            and squadron.has_available_pilots
-                            and self.transfer.transport is None
-                        ):
-                            flight_size = self.create_airlift_flight(
-                                squadron, inventory
-                            )
-                            available -= flight_size
+            squadrons = air_wing.auto_assignable_for_task_at(FlightType.TRANSPORT, cp)
+            for squadron in squadrons:
+                if self.compatible_with_mission(squadron.aircraft, cp):
+                    while (
+                        squadron.untasked_aircraft
+                        and squadron.has_available_pilots
+                        and self.transfer.transport is None
+                    ):
+                        self.create_airlift_flight(squadron)
         if self.package.flights:
             self.game.ato_for(self.for_player).add_package(self.package)
 
-    def create_airlift_flight(
-        self, squadron: Squadron, inventory: ControlPointAircraftInventory
-    ) -> int:
-        available_aircraft = inventory.available(squadron.aircraft)
+    def create_airlift_flight(self, squadron: Squadron) -> int:
+        available_aircraft = squadron.untasked_aircraft
         capacity_each = 1 if squadron.aircraft.dcs_unit_type.helicopter else 2
         required = math.ceil(self.transfer.size / capacity_each)
         flight_size = min(
@@ -308,25 +331,28 @@ class AirliftPlanner:
         # TODO: Use number_of_available_pilots directly once feature flag is gone.
         # The number of currently available pilots is not relevant when pilot limits
         # are disabled.
-        if not squadron.can_provide_pilots(flight_size):
-            flight_size = squadron.number_of_available_pilots
+        if not squadron.can_fulfill_flight(flight_size):
+            flight_size = squadron.max_fulfillable_aircraft
         capacity = flight_size * capacity_each
 
         if capacity < self.transfer.size:
-            transfer = self.game.transfers.split_transfer(self.transfer, capacity)
+            transfer = self.game.coalition_for(
+                self.for_player
+            ).transfers.split_transfer(self.transfer, capacity)
         else:
             transfer = self.transfer
 
-        player = inventory.control_point.captured
+        start_type = squadron.location.required_aircraft_start_type
+        if start_type is None:
+            start_type = self.game.settings.default_start_type
+
         flight = Flight(
             self.package,
-            self.game.country_for(player),
+            self.game.country_for(squadron.player),
             squadron,
             flight_size,
             FlightType.TRANSPORT,
-            self.game.settings.default_start_type,
-            departure=inventory.control_point,
-            arrival=inventory.control_point,
+            start_type,
             divert=None,
             cargo=transfer,
         )
@@ -335,9 +361,10 @@ class AirliftPlanner:
         transfer.transport = transport
 
         self.package.add_flight(flight)
-        planner = FlightPlanBuilder(self.game, self.package, self.for_player)
+        planner = FlightPlanBuilder(
+            self.package, self.game.coalition_for(self.for_player), self.game.theater
+        )
         planner.populate_flight_plan(flight)
-        self.game.aircraft_inventory.claim_for_flight(flight)
         return flight_size
 
 
@@ -516,14 +543,14 @@ class TransportMap(Generic[TransportType]):
             yield from destination_dict.values()
 
 
-class ConvoyMap(TransportMap):
+class ConvoyMap(TransportMap[Convoy]):
     def create_transport(
         self, origin: ControlPoint, destination: ControlPoint
     ) -> Convoy:
         return Convoy(origin, destination)
 
 
-class CargoShipMap(TransportMap):
+class CargoShipMap(TransportMap[CargoShip]):
     def create_transport(
         self, origin: ControlPoint, destination: ControlPoint
     ) -> CargoShip:
@@ -531,8 +558,9 @@ class CargoShipMap(TransportMap):
 
 
 class PendingTransfers:
-    def __init__(self, game: Game) -> None:
+    def __init__(self, game: Game, player: bool) -> None:
         self.game = game
+        self.player = player
         self.convoys = ConvoyMap()
         self.cargo_ships = CargoShipMap()
         self.pending_transfers: List[TransferOrder] = []
@@ -589,8 +617,14 @@ class PendingTransfers:
         self.pending_transfers.append(new_transfer)
         return new_transfer
 
+    # Type checking ignored because singledispatchmethod doesn't work with required type
+    # definitions. The implementation methods are all typed, so should be fine.
     @singledispatchmethod
-    def cancel_transport(self, transport, transfer: TransferOrder) -> None:
+    def cancel_transport(  # type: ignore
+        self,
+        transport,
+        transfer: TransferOrder,
+    ) -> None:
         pass
 
     @cancel_transport.register
@@ -600,9 +634,7 @@ class PendingTransfers:
         flight = transport.flight
         flight.package.remove_flight(flight)
         if not flight.package.flights:
-            self.game.ato_for(transport.player_owned).remove_package(flight.package)
-        self.game.aircraft_inventory.return_from_flight(flight)
-        flight.clear_roster()
+            self.game.ato_for(self.player).remove_package(flight.package)
 
     @cancel_transport.register
     def _cancel_transport_convoy(
@@ -623,6 +655,12 @@ class PendingTransfers:
         transfer.origin.base.commission_units(transfer.units)
 
     def perform_transfers(self) -> None:
+        """
+        Performs completable transfers from the list of pending transfers and adds
+        uncompleted transfers which are en route back to the list of pending transfers.
+        Disbands all convoys and cargo ships
+        """
+        self.disband_uncompletable_transfers()
         incomplete = []
         for transfer in self.pending_transfers:
             transfer.proceed()
@@ -633,37 +671,93 @@ class PendingTransfers:
         self.cargo_ships.disband_all()
 
     def plan_transports(self) -> None:
+        """
+        Plan transports for all pending and completable transfers which don't have a
+        transport assigned already. This calculates the shortest path between current
+        position and destination on every execution to ensure the route is adopted to
+        recent changes in the theater state / transit network.
+        """
+        self.disband_uncompletable_transfers()
         for transfer in self.pending_transfers:
             if transfer.transport is None:
                 self.arrange_transport(transfer)
 
+    def disband_uncompletable_transfers(self) -> None:
+        """
+        Disbands all transfers from the list of pending_transfers which can not be
+        completed anymore because the theater state changed or the transit network does
+        not allow a route to the destination anymore
+        """
+        completable_transfers = []
+        for transfer in self.pending_transfers:
+            if not transfer.is_completable(self.network_for(transfer.position)):
+                if transfer.transport:
+                    self.cancel_transport(transfer.transport, transfer)
+                transfer.disband()
+            else:
+                completable_transfers.append(transfer)
+        self.pending_transfers = completable_transfers
+
     def order_airlift_assets(self) -> None:
-        for control_point in self.game.theater.controlpoints:
+        for control_point in self.game.theater.control_points_for(self.player):
             if self.game.air_wing_for(control_point.captured).can_auto_plan(
                 FlightType.TRANSPORT
             ):
                 self.order_airlift_assets_at(control_point)
 
-    @staticmethod
-    def desired_airlift_capacity(control_point: ControlPoint) -> int:
-        return 4 if control_point.has_factory else 0
+    def desired_airlift_capacity(self, control_point: ControlPoint) -> int:
 
-    def current_airlift_capacity(self, control_point: ControlPoint) -> int:
-        inventory = self.game.aircraft_inventory.for_control_point(control_point)
-        squadrons = self.game.air_wing_for(
-            control_point.captured
-        ).auto_assignable_for_task(FlightType.TRANSPORT)
-        unit_types = {s.aircraft for s in squadrons}
+        if control_point.has_factory:
+            is_major_hub = control_point.total_aircraft_parking > 0
+            # Check if there is a CP which is only reachable via Airlift
+            transit_network = self.network_for(control_point)
+            for cp in self.game.theater.control_points_for(self.player):
+                # check if the CP has no factory, is reachable from the current
+                # position and can only be reached with airlift connections
+                if (
+                    cp.can_deploy_ground_units
+                    and not cp.has_factory
+                    and transit_network.has_link(control_point, cp)
+                    and not any(
+                        link_type
+                        for link, link_type in transit_network.nodes[cp].items()
+                        if not link_type == TransitConnection.Airlift
+                    )
+                ):
+                    return 4
+
+                if (
+                    is_major_hub
+                    and cp.has_factory
+                    and cp.total_aircraft_parking > control_point.total_aircraft_parking
+                ):
+                    is_major_hub = False
+
+            if is_major_hub:
+                # If the current CP is a major hub keep always 2 planes on reserve
+                return 2
+
+        return 0
+
+    @staticmethod
+    def current_airlift_capacity(control_point: ControlPoint) -> int:
         return sum(
-            count
-            for unit_type, count in inventory.all_aircraft
-            if unit_type in unit_types
+            s.owned_aircraft
+            for s in control_point.squadrons
+            if s.can_auto_assign(FlightType.TRANSPORT)
         )
 
     def order_airlift_assets_at(self, control_point: ControlPoint) -> None:
-        gap = self.desired_airlift_capacity(
-            control_point
-        ) - self.current_airlift_capacity(control_point)
+        unclaimed_parking = control_point.unclaimed_parking()
+        # Buy a maximum of unclaimed_parking only to prevent that aircraft procurement
+        # take place at another base
+        gap = min(
+            [
+                self.desired_airlift_capacity(control_point)
+                - self.current_airlift_capacity(control_point),
+                unclaimed_parking,
+            ]
+        )
 
         if gap <= 0:
             return
@@ -673,8 +767,10 @@ class PendingTransfers:
             # aesthetic.
             gap += 1
 
-        self.game.procurement_requests_for(player=control_point.captured).append(
-            AircraftProcurementRequest(
-                control_point, nautical_miles(200), FlightType.TRANSPORT, gap
-            )
+        if gap > unclaimed_parking:
+            # Prevent to buy more aircraft than possible
+            return
+
+        self.game.coalition_for(self.player).add_procurement_request(
+            AircraftProcurementRequest(control_point, FlightType.TRANSPORT, gap)
         )

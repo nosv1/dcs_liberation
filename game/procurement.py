@@ -5,19 +5,16 @@ import random
 from dataclasses import dataclass
 from typing import Iterator, List, Optional, TYPE_CHECKING, Tuple
 
-from game import db
-from game.data.groundunitclass import GroundUnitClass
-from game.dcs.aircrafttype import AircraftType
+from game.config import RUNWAY_REPAIR_COST
+from game.data.units import UnitClass
 from game.dcs.groundunittype import GroundUnitType
-from game.factions.faction import Faction
 from game.theater import ControlPoint, MissionTarget
-from game.utils import Distance
-from gen.flights.ai_flight_planner_db import aircraft_for_task
-from gen.flights.closestairfields import ObjectiveDistanceCache
-from gen.flights.flight import FlightType
 
 if TYPE_CHECKING:
     from game import Game
+    from game.ato import FlightType
+    from game.factions.faction import Faction
+    from game.squadrons import Squadron
 
 FRONTLINE_RESERVES_FACTOR = 1.3
 
@@ -25,15 +22,13 @@ FRONTLINE_RESERVES_FACTOR = 1.3
 @dataclass(frozen=True)
 class AircraftProcurementRequest:
     near: MissionTarget
-    range: Distance
     task_capability: FlightType
     number: int
 
     def __str__(self) -> str:
         task = self.task_capability.value
-        distance = self.range.nautical_miles
         target = self.near.name
-        return f"{self.number} ship {task} within {distance} nm of {target}"
+        return f"{self.number} ship {task} near {target}"
 
 
 class ProcurementAi:
@@ -72,9 +67,11 @@ class ProcurementAi:
             return 1
 
         for cp in self.owned_points:
-            cp_ground_units = cp.allocated_ground_units(self.game.transfers)
+            cp_ground_units = cp.allocated_ground_units(
+                self.game.coalition_for(self.is_player).transfers
+            )
             armor_investment += cp_ground_units.total_value
-            cp_aircraft = cp.allocated_aircraft(self.game)
+            cp_aircraft = cp.allocated_aircraft()
             aircraft_investment += cp_aircraft.total_value
 
         total_investment = aircraft_investment + armor_investment
@@ -97,44 +94,17 @@ class ProcurementAi:
             budget -= armor_budget
             budget += self.reinforce_front_line(armor_budget)
 
-        # Don't sell overstock aircraft until after we've bought runways and
-        # front lines. Any budget we free up should be earmarked for aircraft.
-        if not self.is_player:
-            budget += self.sell_incomplete_squadrons()
         if self.manage_aircraft:
             budget = self.purchase_aircraft(budget)
         return budget
 
-    def sell_incomplete_squadrons(self) -> float:
-        # Selling incomplete squadrons gives us more money to spend on the next
-        # turn. This serves as a short term fix for
-        # https://github.com/dcs-liberation/dcs_liberation/issues/41.
-        #
-        # Only incomplete squadrons which are unlikely to get used will be sold
-        # rather than all unused aircraft because the unused aircraft are what
-        # make OCA strikes worthwhile.
-        #
-        # This option is only used by the AI since players cannot cancel sales
-        # (https://github.com/dcs-liberation/dcs_liberation/issues/365).
-        total = 0.0
-        for cp in self.game.theater.control_points_for(self.is_player):
-            inventory = self.game.aircraft_inventory.for_control_point(cp)
-            for aircraft, available in inventory.all_aircraft:
-                # We only ever plan even groups, so the odd aircraft is unlikely
-                # to get used.
-                if available % 2 == 0:
-                    continue
-                inventory.remove_aircraft(aircraft, 1)
-                total += aircraft.price
-        return total
-
     def repair_runways(self, budget: float) -> float:
         for control_point in self.owned_points:
-            if budget < db.RUNWAY_REPAIR_COST:
+            if budget < RUNWAY_REPAIR_COST:
                 break
             if control_point.runway_can_be_repaired:
                 control_point.begin_runway_repair()
-                budget -= db.RUNWAY_REPAIR_COST
+                budget -= RUNWAY_REPAIR_COST
                 if self.is_player:
                     self.game.message(
                         "OPFOR has begun repairing the runway at " f"{control_point}"
@@ -146,7 +116,7 @@ class ProcurementAi:
         return budget
 
     def affordable_ground_unit_of_class(
-        self, budget: float, unit_class: GroundUnitClass
+        self, budget: float, unit_class: UnitClass
     ) -> Optional[GroundUnitType]:
         faction_units = set(self.faction.frontline_units) | set(
             self.faction.artillery_units
@@ -180,15 +150,15 @@ class ProcurementAi:
                 break
 
             budget -= unit.price
-            cp.pending_unit_deliveries.order({unit: 1})
+            cp.ground_unit_orders.order({unit: 1})
 
         return budget
 
-    def most_needed_unit_class(self, cp: ControlPoint) -> GroundUnitClass:
-        worst_balanced: Optional[GroundUnitClass] = None
+    def most_needed_unit_class(self, cp: ControlPoint) -> UnitClass:
+        worst_balanced: Optional[UnitClass] = None
         worst_fulfillment = math.inf
-        for unit_class in GroundUnitClass:
-            if not self.faction.has_access_to_unittype(unit_class):
+        for unit_class in UnitClass:
+            if not self.faction.has_access_to_unit_class(unit_class):
                 continue
 
             current_ratio = self.cost_ratio_of_ground_unit(cp, unit_class)
@@ -206,70 +176,40 @@ class ProcurementAi:
                 worst_fulfillment = fulfillment
                 worst_balanced = unit_class
         if worst_balanced is None:
-            return GroundUnitClass.Tank
+            return UnitClass.TANK
         return worst_balanced
 
-    def _affordable_aircraft_for_task(
-        self,
-        task: FlightType,
-        airbase: ControlPoint,
-        number: int,
-        max_price: float,
-    ) -> Optional[AircraftType]:
-        best_choice: Optional[AircraftType] = None
-        for unit in aircraft_for_task(task):
-            if unit not in self.faction.aircrafts:
-                continue
-            if unit.price * number > max_price:
-                continue
-            if not airbase.can_operate(unit):
-                continue
-
-            for squadron in self.air_wing.squadrons_for(unit):
-                if task in squadron.auto_assignable_mission_types:
-                    break
-            else:
-                continue
-
-            # Affordable, compatible, and we have a squadron capable of the task. To
-            # keep some variety, skip with a 50/50 chance. Might be a good idea to have
-            # the chance to skip based on the price compared to the rest of the choices.
-            best_choice = unit
-            if random.choice([True, False]):
-                break
-        return best_choice
-
-    def affordable_aircraft_for(
-        self, request: AircraftProcurementRequest, airbase: ControlPoint, budget: float
-    ) -> Optional[AircraftType]:
-        return self._affordable_aircraft_for_task(
-            request.task_capability, airbase, request.number, budget
-        )
-
+    @staticmethod
     def fulfill_aircraft_request(
-        self, request: AircraftProcurementRequest, budget: float
+        squadrons: list[Squadron], quantity: int, budget: float
     ) -> Tuple[float, bool]:
-        for airbase in self.best_airbases_for(request):
-            unit = self.affordable_aircraft_for(request, airbase, budget)
-            if unit is None:
-                # Can't afford any aircraft capable of performing the
-                # required mission that can operate from this airbase. We
-                # might be able to afford aircraft at other airbases though,
-                # in the case where the airbase we attempted to use is only
-                # able to operate expensive aircraft.
+        for squadron in squadrons:
+            price = squadron.aircraft.price * quantity
+            # Final check to make sure the number of aircraft won't exceed the number of available pilots
+            # after fulfilling this aircraft request.
+            if (
+                squadron.pilot_limits_enabled
+                and squadron.expected_size_next_turn + quantity
+                > squadron.expected_pilots_next_turn
+            ):
+                continue
+            if price > budget:
                 continue
 
-            budget -= unit.price * request.number
-            airbase.pending_unit_deliveries.order({unit: request.number})
+            squadron.pending_deliveries += quantity
+            budget -= price
             return budget, True
         return budget, False
 
     def purchase_aircraft(self, budget: float) -> float:
-        for request in self.game.procurement_requests_for(self.is_player):
-            if not list(self.best_airbases_for(request)):
+        for request in self.game.coalition_for(self.is_player).procurement_requests:
+            squadrons = list(self.best_squadrons_for(request))
+            if not squadrons:
                 # No airbases in range of this request. Skip it.
                 continue
-            budget, fulfilled = self.fulfill_aircraft_request(request, budget)
+            budget, fulfilled = self.fulfill_aircraft_request(
+                squadrons, request.number, budget
+            )
             if not fulfilled:
                 # The request was not fulfilled because we could not afford any suitable
                 # aircraft. Rather than continuing, which could proceed to buy tons of
@@ -286,19 +226,21 @@ class ProcurementAi:
         else:
             return self.game.theater.enemy_points()
 
-    def best_airbases_for(
+    def best_squadrons_for(
         self, request: AircraftProcurementRequest
-    ) -> Iterator[ControlPoint]:
-        distance_cache = ObjectiveDistanceCache.get_closest_airfields(request.near)
+    ) -> Iterator[Squadron]:
         threatened = []
-        for cp in distance_cache.operational_airfields_within(request.range):
-            if not cp.is_friendly(self.is_player):
+        for squadron in self.air_wing.best_squadrons_for(
+            request.near, request.task_capability, request.number, this_turn=False
+        ):
+            if not squadron.can_provide_pilots(request.number):
                 continue
-            if cp.unclaimed_parking(self.game) < request.number:
+            if squadron.location.unclaimed_parking() < request.number:
                 continue
-            if self.threat_zones.threatened(cp.position):
-                threatened.append(cp)
-            yield cp
+            if self.threat_zones.threatened(squadron.location.position):
+                threatened.append(squadron)
+                continue
+            yield squadron
         yield from threatened
 
     def ground_reinforcement_candidate(self) -> Optional[ControlPoint]:
@@ -316,7 +258,9 @@ class ProcurementAi:
                 continue
 
             purchase_target = cp.frontline_unit_count_limit * FRONTLINE_RESERVES_FACTOR
-            allocated = cp.allocated_ground_units(self.game.transfers)
+            allocated = cp.allocated_ground_units(
+                self.game.coalition_for(self.is_player).transfers
+            )
             if allocated.total >= purchase_target:
                 # Control point is already sufficiently defended.
                 continue
@@ -343,7 +287,9 @@ class ProcurementAi:
             if not cp.can_recruit_ground_units(self.game):
                 continue
 
-            allocated = cp.allocated_ground_units(self.game.transfers)
+            allocated = cp.allocated_ground_units(
+                self.game.coalition_for(self.is_player).transfers
+            )
             if allocated.total >= self.game.settings.reserves_procurement_target:
                 continue
 
@@ -354,9 +300,11 @@ class ProcurementAi:
         return understaffed
 
     def cost_ratio_of_ground_unit(
-        self, control_point: ControlPoint, unit_class: GroundUnitClass
+        self, control_point: ControlPoint, unit_class: UnitClass
     ) -> float:
-        allocations = control_point.allocated_ground_units(self.game.transfers)
+        allocations = control_point.allocated_ground_units(
+            self.game.coalition_for(self.is_player).transfers
+        )
         class_cost = 0
         total_cost = 0
         for unit_type, count in allocations.all.items():

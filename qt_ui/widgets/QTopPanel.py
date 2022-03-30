@@ -10,18 +10,19 @@ from PySide2.QtWidgets import (
 )
 
 import qt_ui.uiconstants as CONST
-from game import Game
-from game.event.airwar import AirWarEvent
+from game import Game, persistency
+from game.ato.package import Package
 from game.profiling import logged_duration
 from game.utils import meters
-from gen.ato import Package
-from gen.flights.traveltime import TotEstimator
+from game.ato.traveltime import TotEstimator
 from qt_ui.models import GameModel
+from qt_ui.simcontroller import SimController
 from qt_ui.widgets.QBudgetBox import QBudgetBox
 from qt_ui.widgets.QConditionsWidget import QConditionsWidget
 from qt_ui.widgets.QFactionsInfos import QFactionsInfos
 from qt_ui.widgets.QIntelBox import QIntelBox
 from qt_ui.widgets.clientslots import MaxPlayerCount
+from qt_ui.widgets.simspeedcontrols import SimSpeedControls
 from qt_ui.windows.AirWingDialog import AirWingDialog
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.PendingTransfersDialog import PendingTransfersDialog
@@ -29,22 +30,15 @@ from qt_ui.windows.QWaitingForMissionResultWindow import QWaitingForMissionResul
 
 
 class QTopPanel(QFrame):
-    def __init__(self, game_model: GameModel):
+    def __init__(self, game_model: GameModel, sim_controller: SimController) -> None:
         super(QTopPanel, self).__init__()
         self.game_model = game_model
+        self.sim_controller = sim_controller
         self.dialog: Optional[QDialog] = None
 
         self.setMaximumHeight(70)
-        self.init_ui()
-        GameUpdateSignal.get_instance().gameupdated.connect(self.setGame)
-        GameUpdateSignal.get_instance().budgetupdated.connect(self.budget_update)
 
-    @property
-    def game(self) -> Optional[Game]:
-        return self.game_model.game
-
-    def init_ui(self):
-        self.conditionsWidget = QConditionsWidget()
+        self.conditionsWidget = QConditionsWidget(sim_controller)
         self.budgetBox = QBudgetBox(self.game)
 
         pass_turn_text = "Pass Turn"
@@ -86,6 +80,7 @@ class QTopPanel(QFrame):
 
         self.proceedBox = QGroupBox("Proceed")
         self.proceedBoxLayout = QHBoxLayout()
+        self.proceedBoxLayout.addLayout(SimSpeedControls(sim_controller))
         self.proceedBoxLayout.addLayout(MaxPlayerCount(self.game_model.ato_model))
         self.proceedBoxLayout.addWidget(self.passTurnButton)
         self.proceedBoxLayout.addWidget(self.proceedButton)
@@ -105,6 +100,13 @@ class QTopPanel(QFrame):
 
         self.setLayout(self.layout)
 
+        GameUpdateSignal.get_instance().gameupdated.connect(self.setGame)
+        GameUpdateSignal.get_instance().budgetupdated.connect(self.budget_update)
+
+    @property
+    def game(self) -> Optional[Game]:
+        return self.game_model.game
+
     def setGame(self, game: Optional[Game]):
         if game is None:
             return
@@ -114,9 +116,12 @@ class QTopPanel(QFrame):
 
         self.conditionsWidget.setCurrentTurn(game.turn, game.conditions)
 
-        base_m = game.conditions.weather.clouds.base
-        base_ft = int(meters(base_m).feet)
-        self.conditionsWidget.setToolTip(f"Cloud Base: {base_m}m / {base_ft}ft")
+        if game.conditions.weather.clouds:
+            base_m = game.conditions.weather.clouds.base
+            base_ft = int(meters(base_m).feet)
+            self.conditionsWidget.setToolTip(f"Cloud Base: {base_m}m / {base_ft}ft")
+        else:
+            self.conditionsWidget.setToolTip("")
 
         self.intel_box.set_game(game)
         self.budgetBox.setGame(game)
@@ -165,7 +170,7 @@ class QTopPanel(QFrame):
             package.time_over_target = estimator.earliest_tot()
 
     def ato_has_clients(self) -> bool:
-        for package in self.game.blue_ato.packages:
+        for package in self.game.blue.ato.packages:
             for flight in package.flights:
                 if flight.client_count > 0:
                     return True
@@ -233,7 +238,7 @@ class QTopPanel(QFrame):
 
     def check_no_missing_pilots(self) -> bool:
         missing_pilots = []
-        for package in self.game.blue_ato.packages:
+        for package in self.game.blue.ato.packages:
             for flight in package.flights:
                 if flight.missing_pilots > 0:
                     missing_pilots.append((package, flight))
@@ -273,19 +278,16 @@ class QTopPanel(QFrame):
         if negative_starts:
             if not self.confirm_negative_start_time(negative_starts):
                 return
-        closest_cps = self.game.theater.closest_opposing_control_points()
-        game_event = AirWarEvent(
-            self.game,
-            closest_cps[0],
-            closest_cps[1],
-            self.game.theater.controlpoints[0].position,
-            self.game.player_faction.name,
-            self.game.enemy_faction.name,
+
+        if self.game.settings.fast_forward_to_first_contact:
+            with logged_duration("Simulating to first contact"):
+                self.sim_controller.run_to_first_contact()
+        self.sim_controller.generate_miz(
+            persistency.mission_path_for("liberation_nextturn.miz")
         )
 
-        unit_map = self.game.initiate_event(game_event)
-        waiting = QWaitingForMissionResultWindow(game_event, self.game, unit_map)
-        waiting.show()
+        waiting = QWaitingForMissionResultWindow(self.game, self.sim_controller, self)
+        waiting.exec_()
 
     def budget_update(self, game: Game):
         self.budgetBox.setGame(game)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from game.db import REWARDS
+from game.config import REWARDS
 
 if TYPE_CHECKING:
     from game import Game
@@ -14,10 +14,10 @@ class BuildingIncome:
     name: str
     category: str
     number: int
-    income_per_building: int
+    income_per_building: float
 
     @property
-    def income(self) -> int:
+    def income(self) -> float:
         return self.number * self.income_per_building
 
 

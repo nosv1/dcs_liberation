@@ -5,6 +5,7 @@
   "description": "<p>UAR army in the 2000s.</p>",
   "aircrafts": [
     "AH-64D Apache Longbow",
+    "AH-64D Apache Longbow (AI)",
     "C-130",
     "F-16CM Fighting Falcon (Block 50)",
     "Mirage 2000-5",
@@ -31,18 +32,20 @@
     "Infantry M4",
     "MANPADS SA-18 Igla-S \"Grouse\""
   ],
-  "air_defenses": [
-    "HawkGenerator",
-    "RapierGenerator"
+  "preset_groups": [
+    "Hawk",
+    "Rapier"
   ],
-  "ewrs": [
-    "HawkEwrGenerator"
+  "naval_units": [
+    "FFG Oliver Hazard Perry"
+  ],
+  "missiles": [],
+  "air_defense_units": [
+    "SAM Hawk SR (AN/MPQ-50)"
   ],
   "requirements": {},
   "carrier_names": [],
-  "navy_generators": [
-    "OliverHazardPerryGroupGenerator"
-  ],
   "has_jtac": true,
-  "jtac_unit": "WingLoong-I"
+  "jtac_unit": "WingLoong-I",
+  "unrestricted_satnav": true
 }

@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -9,20 +10,20 @@ from typing import Optional
 from PySide2 import QtWidgets
 from PySide2.QtCore import Qt
 from PySide2.QtGui import QPixmap
-from PySide2.QtWidgets import QApplication, QSplashScreen
+from PySide2.QtWidgets import QApplication, QCheckBox, QSplashScreen
 from dcs.payloads import PayloadDirectories
-from dcs.weapons_data import weapon_ids
 
 from game import Game, VERSION, persistency
-from game.data.weapons import (
-    WEAPON_FALLBACK_MAP,
-    WEAPON_INTRODUCTION_YEARS,
-    Weapon,
-)
-from game.db import FACTIONS
+from game.campaignloader.campaign import Campaign
+from game.data.weapons import Pylon, Weapon, WeaponGroup
+from game.dcs.aircrafttype import AircraftType
+from game.factions import FACTIONS
 from game.profiling import logged_duration
+from game.server import EventStream, Server
 from game.settings import Settings
+from game.sim import GameUpdateEvents
 from game.theater.start_generator import GameGenerator, GeneratorSettings, ModSettings
+from pydcs_extensions import load_mods
 from qt_ui import (
     liberation_install,
     liberation_theme,
@@ -31,7 +32,6 @@ from qt_ui import (
 )
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.QLiberationWindow import QLiberationWindow
-from qt_ui.windows.newgame.QCampaignList import Campaign
 from qt_ui.windows.newgame.QNewGameWizard import DEFAULT_BUDGET
 from qt_ui.windows.preferences.QLiberationFirstStartWindow import (
     QLiberationFirstStartWindow,
@@ -59,16 +59,28 @@ def inject_custom_payloads(user_path: Path) -> None:
     PayloadDirectories.set_preferred(user_path / "MissionEditor" / "UnitPayloads")
 
 
-def run_ui(game: Optional[Game]) -> None:
-    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  # Potential fix for 4K screens
+def on_game_load(game: Game | None) -> None:
+    EventStream.drain()
+    EventStream.put_nowait(GameUpdateEvents().game_loaded(game))
+
+
+def run_ui(game: Game | None, dev: bool) -> None:
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"  # Potential fix for 4K screens
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+
     app = QApplication(sys.argv)
 
     app.setAttribute(Qt.AA_DisableWindowContextHelpButton)
+    app.setAttribute(Qt.AA_EnableHighDpiScaling, True)  # enable highdpi scaling
+    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)  # use highdpi icons
 
     # init the theme and load the stylesheet based on the theme index
     liberation_theme.init()
     with open(
-        "./resources/stylesheets/" + liberation_theme.get_theme_css_file()
+        "./resources/stylesheets/" + liberation_theme.get_theme_css_file(),
+        encoding="utf-8",
     ) as stylesheet:
         logging.info("Loading stylesheet: %s", liberation_theme.get_theme_css_file())
         app.setStyleSheet(stylesheet.read())
@@ -92,6 +104,11 @@ def run_ui(game: Optional[Game]) -> None:
     splash = QSplashScreen(pixmap)
     splash.show()
 
+    # Developers are launching the game in a loop hundreds of times. We've read it.
+    if not dev:
+        # Give enough time to read splash screen
+        time.sleep(3)
+
     # Once splash screen is up : load resources & setup stuff
     uiconstants.load_icons()
     uiconstants.load_event_icons()
@@ -100,6 +117,31 @@ def run_ui(game: Optional[Game]) -> None:
     uiconstants.load_aircraft_banners()
     uiconstants.load_vehicle_banners()
 
+    # Show warning if no DCS Installation directory was set
+    if liberation_install.get_dcs_install_directory() == "":
+        logging.warning(
+            "DCS Installation directory is empty. MissionScripting file will not be replaced!"
+        )
+        if not liberation_install.ignore_empty_install_directory():
+            ignore_checkbox = QCheckBox("Do not show again")
+            ignore_checkbox.stateChanged.connect(set_ignore_empty_install_directory)
+            message_box = QtWidgets.QMessageBox(parent=splash)
+            message_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            message_box.setWindowTitle("No DCS installation directory.")
+            message_box.setText(
+                "The DCS Installation directory is not set correctly. "
+                "This will prevent DCS Liberation to work properly as the MissionScripting "
+                "file will not be modified."
+                "<br/><br/>To solve this problem, you can set the Installation directory "
+                "within the preferences menu. You can also manually edit or replace the "
+                "following file:"
+                "<br/><br/><strong>&lt;dcs_installation_directory&gt;/Scripts/MissionScripting.lua</strong>"
+                "<br/><br/>The easiest way to do it is to replace the original file with the file in dcs-liberation distribution (&lt;dcs_liberation_installation&gt;/resources/scripts/MissionScripting.lua)."
+                "<br/><br/>You can find more information on how to manually change this file in the Liberation Wiki (Page: Dedicated Server Guide) on GitHub.</p>"
+            )
+            message_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Ok)
+            message_box.setCheckBox(ignore_checkbox)
+            message_box.exec_()
     # Replace DCS Mission scripting file to allow DCS Liberation to work
     try:
         liberation_install.replace_mission_scripting_file()
@@ -113,9 +155,10 @@ def run_ui(game: Optional[Game]) -> None:
 
     # Apply CSS (need works)
     GameUpdateSignal()
+    GameUpdateSignal.get_instance().game_loaded.connect(on_game_load)
 
     # Start window
-    window = QLiberationWindow(game)
+    window = QLiberationWindow(game, dev)
     window.showMaximized()
     splash.finish(window)
     qt_execution_code = app.exec_()
@@ -142,6 +185,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Emits a warning for weapons without date or fallback information.",
     )
+
+    parser.add_argument("--dev", action="store_true", help="Enable development mode.")
 
     parser.add_argument("--new-map", help="Deprecated. Does nothing.")
     parser.add_argument("--old-map", help="Deprecated. Does nothing.")
@@ -172,7 +217,23 @@ def parse_args() -> argparse.Namespace:
         "--inverted", action="store_true", help="Invert the campaign."
     )
 
+    new_game.add_argument(
+        "--date",
+        type=datetime.fromisoformat,
+        default=datetime.today(),
+        help="Start date of the campaign.",
+    )
+
+    new_game.add_argument(
+        "--restrict-weapons-by-date",
+        action="store_true",
+        help="Enable campaign date restricted weapons.",
+    )
+
     new_game.add_argument("--cheats", action="store_true", help="Enable cheats.")
+
+    lint_weapons = subparsers.add_parser("lint-weapons")
+    lint_weapons.add_argument("aircraft", help="Name of the aircraft variant to lint.")
 
     return parser.parse_args()
 
@@ -185,6 +246,8 @@ def create_game(
     auto_procurement: bool,
     inverted: bool,
     cheats: bool,
+    start_date: datetime,
+    restrict_weapons_by_date: bool,
 ) -> Game:
     first_start = liberation_install.init()
     if first_start:
@@ -201,11 +264,13 @@ def create_game(
     # for loadouts) without saving the generated campaign and reloading it the normal
     # way.
     inject_custom_payloads(Path(persistency.base_path()))
-    campaign = Campaign.from_json(campaign_path)
+    campaign = Campaign.from_file(campaign_path)
+    theater = campaign.load_theater()
     generator = GameGenerator(
         FACTIONS[blue],
         FACTIONS[red],
-        campaign.load_theater(),
+        theater,
+        campaign.load_air_wing_config(theater),
         Settings(
             supercarrier=supercarrier,
             automate_runway_repair=auto_procurement,
@@ -213,12 +278,12 @@ def create_game(
             automate_aircraft_reinforcements=auto_procurement,
             enable_frontline_cheats=cheats,
             enable_base_capture_cheat=cheats,
+            restrict_weapons_by_date=restrict_weapons_by_date,
         ),
         GeneratorSettings(
-            start_date=datetime.today(),
+            start_date=start_date,
             player_budget=DEFAULT_BUDGET,
             enemy_budget=DEFAULT_BUDGET,
-            midgame=False,
             inverted=inverted,
             no_carrier=False,
             no_lha=False,
@@ -228,6 +293,7 @@ def create_game(
         ModSettings(
             a4_skyhawk=False,
             f22_raptor=False,
+            f104_starfighter=False,
             hercules=False,
             jas39_gripen=False,
             su57_felon=False,
@@ -235,16 +301,29 @@ def create_game(
             high_digit_sams=False,
         ),
     )
-    return generator.generate()
+    game = generator.generate()
+    game.begin_turn_0()
+    return game
 
 
-def lint_weapon_data() -> None:
-    for clsid in weapon_ids:
-        weapon = Weapon.from_clsid(clsid)
-        if weapon not in WEAPON_INTRODUCTION_YEARS:
-            logging.warning(f"{weapon} has no introduction date")
-        if weapon not in WEAPON_FALLBACK_MAP:
-            logging.warning(f"{weapon} has no fallback")
+def set_ignore_empty_install_directory(value: bool) -> None:
+    liberation_install.set_ignore_empty_install_directory(value)
+    liberation_install.save_config()
+
+
+def lint_all_weapon_data() -> None:
+    for weapon in WeaponGroup.named("Unknown").weapons:
+        logging.warning(f"No weapon data for {weapon}: {weapon.clsid}")
+
+
+def lint_weapon_data_for_aircraft(aircraft: AircraftType) -> None:
+    all_weapons: set[Weapon] = set()
+    for pylon in Pylon.iter_pylons(aircraft):
+        all_weapons |= pylon.allowed
+
+    for weapon in all_weapons:
+        if weapon.weapon_group.name == "Unknown":
+            logging.warning(f'{weapon.clsid} "{weapon.name}" has no weapon data')
 
 
 def main():
@@ -252,13 +331,20 @@ def main():
 
     logging.debug("Python version %s", sys.version)
 
+    if not str(Path(__file__)).isascii():
+        logging.warning(
+            "Installation path contains non-ASCII characters. This is known to cause problems."
+        )
+
     game: Optional[Game] = None
 
     args = parse_args()
 
     # TODO: Flesh out data and then make unconditional.
     if args.warn_missing_weapon_data:
-        lint_weapon_data()
+        lint_all_weapon_data()
+
+    load_mods()
 
     if args.subcommand == "new-game":
         with logged_duration("New game creation"):
@@ -270,9 +356,15 @@ def main():
                 args.auto_procurement,
                 args.inverted,
                 args.cheats,
+                args.date,
+                args.restrict_weapons_by_date,
             )
+    if args.subcommand == "lint-weapons":
+        lint_weapon_data_for_aircraft(AircraftType.named(args.aircraft))
+        return
 
-    run_ui(game)
+    with Server().run_in_thread():
+        run_ui(game, args.dev)
 
 
 if __name__ == "__main__":

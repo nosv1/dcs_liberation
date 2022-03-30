@@ -1,4 +1,5 @@
-description: "The F-5E was developed by Northrop Corporation in early 1970s. The light\
+description:
+  "The F-5E was developed by Northrop Corporation in early 1970s. The light\
   \ tactical fighter is an upgraded version based on previous F-5A developments. The\
   \ F-5s' combat role encompasses air superiority, ground support, and ground attack.\
   \ Given its mission flexibility, ease of operation, and low cost, the Tiger II has,\
@@ -20,6 +21,19 @@ manufacturer: Northrop
 origin: USA
 price: 12
 role: Light Fighter
+max_range: 100
 gunfighter: true
 variants:
   F-5E Tiger II: {}
+# default_overrides:
+#   ChaffBurst: 0
+#   ChaffBurstInt: 0
+#   ChaffSalvo: 0
+#   ChaffSalvoInt: 0
+#   FlareBurst: 0
+#   FlareBurstInt: 0
+#   LAU3ROF: 0
+#   LAU68ROF: 0
+#   LaserCode1: 8
+#   LaserCode10: 8
+#   LaserCode100: 6

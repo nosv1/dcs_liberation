@@ -1,25 +1,22 @@
 from __future__ import unicode_literals
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List
 
 from PySide2 import QtGui, QtWidgets
-from PySide2.QtCore import QItemSelectionModel, QPoint, Qt, QDate
-from PySide2.QtWidgets import QVBoxLayout, QTextEdit, QLabel, QCheckBox
+from PySide2.QtCore import QDate, QItemSelectionModel, QPoint, Qt
+from PySide2.QtWidgets import QCheckBox, QLabel, QTextEdit, QVBoxLayout
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from game import db
+from game.campaignloader.campaign import Campaign
+from game.factions import FACTIONS, Faction
 from game.settings import Settings
 from game.theater.start_generator import GameGenerator, GeneratorSettings, ModSettings
-from game.factions.faction import Faction
 from qt_ui.widgets.QLiberationCalendar import QLiberationCalendar
-from qt_ui.widgets.spinsliders import TenthsSpinSlider, TimeInputs, CurrencySpinner
-from qt_ui.windows.newgame.QCampaignList import (
-    Campaign,
-    QCampaignList,
-    load_campaigns,
-)
+from qt_ui.widgets.spinsliders import CurrencySpinner, FloatSpinSlider, TimeInputs
+from qt_ui.windows.AirWingConfigurationDialog import AirWingConfigurationDialog
+from qt_ui.windows.newgame.QCampaignList import QCampaignList
 
 jinja_env = Environment(
     loader=FileSystemLoader("resources/ui/templates"),
@@ -36,11 +33,57 @@ DEFAULT_BUDGET = 2000
 DEFAULT_MISSION_LENGTH: timedelta = timedelta(minutes=60)
 
 
+"""
+Possible time periods for new games
+
+    `Name`: daytime(day, month, year),
+
+`Identifier` is the name that will appear in the menu
+The object is a python datetime object
+"""
+TIME_PERIODS = {
+    "WW2 - Winter [1944]": datetime(1944, 1, 1),
+    "WW2 - Spring [1944]": datetime(1944, 4, 1),
+    "WW2 - Summer [1944]": datetime(1944, 6, 1),
+    "WW2 - Fall [1944]": datetime(1944, 10, 1),
+    "Early Cold War - Winter [1952]": datetime(1952, 1, 1),
+    "Early Cold War - Spring [1952]": datetime(1952, 4, 1),
+    "Early Cold War - Summer [1952]": datetime(1952, 6, 1),
+    "Early Cold War - Fall [1952]": datetime(1952, 10, 1),
+    "Cold War - Winter [1970]": datetime(1970, 1, 1),
+    "Cold War - Spring [1970]": datetime(1970, 4, 1),
+    "Cold War - Summer [1970]": datetime(1970, 6, 1),
+    "Cold War - Fall [1970]": datetime(1970, 10, 1),
+    "Late Cold War - Winter [1985]": datetime(1985, 1, 1),
+    "Late Cold War - Spring [1985]": datetime(1985, 4, 1),
+    "Late Cold War - Summer [1985]": datetime(1985, 6, 1),
+    "Late Cold War - Fall [1985]": datetime(1985, 10, 1),
+    "Gulf War - Winter [1990]": datetime(1990, 1, 1),
+    "Gulf War - Spring [1990]": datetime(1990, 4, 1),
+    "Gulf War - Summer [1990]": datetime(1990, 6, 1),
+    "Mid-90s - Winter [1995]": datetime(1995, 1, 1),
+    "Mid-90s - Spring [1995]": datetime(1995, 4, 1),
+    "Mid-90s - Summer [1995]": datetime(1995, 6, 1),
+    "Mid-90s - Fall [1995]": datetime(1995, 10, 1),
+    "Gulf War - Fall [1990]": datetime(1990, 10, 1),
+    "Modern - Winter [2010]": datetime(2010, 1, 1),
+    "Modern - Spring [2010]": datetime(2010, 4, 1),
+    "Modern - Summer [2010]": datetime(2010, 6, 1),
+    "Modern - Fall [2010]": datetime(2010, 10, 1),
+    "Georgian War [2008]": datetime(2008, 8, 7),
+    "Syrian War [2011]": datetime(2011, 3, 15),
+    "6 days war [1967]": datetime(1967, 6, 5),
+    "Yom Kippour War [1973]": datetime(1973, 10, 6),
+    "First Lebanon War [1982]": datetime(1982, 6, 6),
+    "Arab-Israeli War [1948]": datetime(1948, 5, 15),
+}
+
+
 class NewGameWizard(QtWidgets.QWizard):
     def __init__(self, parent=None):
         super(NewGameWizard, self).__init__(parent)
 
-        self.campaigns = load_campaigns()
+        self.campaigns = list(sorted(Campaign.load_each(), key=lambda x: x.name))
 
         self.faction_selection_page = FactionSelection()
         self.addPage(IntroPage())
@@ -68,15 +111,20 @@ class NewGameWizard(QtWidgets.QWizard):
 
         campaign = self.field("selectedCampaign")
         if campaign is None:
+            campaign = self.theater_page.campaignList.selected_campaign
+        if campaign is None:
             campaign = self.campaigns[0]
 
+        logging.info("New campaign selected: %s", campaign.name)
+
         if self.field("usePreset"):
-            start_date = db.TIME_PERIODS[
-                list(db.TIME_PERIODS.keys())[self.field("timePeriod")]
+            start_date = TIME_PERIODS[
+                list(TIME_PERIODS.keys())[self.field("timePeriod")]
             ]
         else:
             start_date = self.theater_page.calendar.selectedDate().toPython()
 
+        logging.info("New campaign start date: %s", start_date.strftime("%m/%d/%Y"))
         settings = Settings(
             player_income_multiplier=self.field("player_income_multiplier") / 10,
             enemy_income_multiplier=self.field("enemy_income_multiplier") / 10,
@@ -96,7 +144,6 @@ class NewGameWizard(QtWidgets.QWizard):
             enemy_budget=int(self.field("enemy_starting_money")),
             # QSlider forces integers, so we use 1 to 50 and divide by 10 to
             # give 0.1 to 5.0.
-            midgame=False,
             inverted=self.field("invertMap"),
             no_carrier=self.field("no_carrier"),
             no_lha=self.field("no_lha"),
@@ -106,7 +153,9 @@ class NewGameWizard(QtWidgets.QWizard):
         mod_settings = ModSettings(
             a4_skyhawk=self.field("a4_skyhawk"),
             f22_raptor=self.field("f22_raptor"),
+            f104_starfighter=self.field("f104_starfighter"),
             hercules=self.field("hercules"),
+            uh_60l=self.field("uh_60l"),
             jas39_gripen=self.field("jas39_gripen"),
             su57_felon=self.field("su57_felon"),
             frenchpack=self.field("frenchpack"),
@@ -115,15 +164,28 @@ class NewGameWizard(QtWidgets.QWizard):
 
         blue_faction = self.faction_selection_page.selected_blue_faction
         red_faction = self.faction_selection_page.selected_red_faction
+
+        logging.info("New campaign blue faction: %s", blue_faction.name)
+        logging.info("New campaign red faction: %s", red_faction.name)
+
+        theater = campaign.load_theater()
+
+        logging.info("New campaign theater: %s", theater.terrain.name)
+
         generator = GameGenerator(
             blue_faction,
             red_faction,
-            campaign.load_theater(),
+            theater,
+            campaign.load_air_wing_config(theater),
             settings,
             generator_settings,
             mod_settings,
         )
         self.generatedGame = generator.generate()
+
+        AirWingConfigurationDialog(self.generatedGame, self).exec_()
+
+        self.generatedGame.begin_turn_0()
 
         super(NewGameWizard, self).accept()
 
@@ -172,7 +234,7 @@ class FactionSelection(QtWidgets.QWizardPage):
 
         blueFaction = QtWidgets.QLabel("<b>Player Faction :</b>")
         self.blueFactionSelect = QtWidgets.QComboBox()
-        for f in db.FACTIONS:
+        for f in FACTIONS:
             self.blueFactionSelect.addItem(f)
         blueFaction.setBuddy(self.blueFactionSelect)
 
@@ -188,7 +250,7 @@ class FactionSelection(QtWidgets.QWizardPage):
         self.redFactionDescription.setReadOnly(True)
 
         # Setup default selected factions
-        for i, r in enumerate(db.FACTIONS):
+        for i, r in enumerate(FACTIONS):
             self.redFactionSelect.addItem(r)
             if r == "Russia 1990":
                 self.redFactionSelect.setCurrentIndex(i)
@@ -234,10 +296,10 @@ class FactionSelection(QtWidgets.QWizardPage):
         self.blueFactionSelect.clear()
         self.redFactionSelect.clear()
 
-        for f in db.FACTIONS:
+        for f in FACTIONS:
             self.blueFactionSelect.addItem(f)
 
-        for i, r in enumerate(db.FACTIONS):
+        for i, r in enumerate(FACTIONS):
             self.redFactionSelect.addItem(r)
             if r == campaign.recommended_enemy_faction:
                 self.redFactionSelect.setCurrentIndex(i)
@@ -248,8 +310,8 @@ class FactionSelection(QtWidgets.QWizardPage):
 
     def updateUnitRecap(self):
 
-        red_faction = db.FACTIONS[self.redFactionSelect.currentText()]
-        blue_faction = db.FACTIONS[self.blueFactionSelect.currentText()]
+        red_faction = FACTIONS[self.redFactionSelect.currentText()]
+        blue_faction = FACTIONS[self.blueFactionSelect.currentText()]
 
         template = jinja_env.get_template("factiontemplate_EN.j2")
 
@@ -261,11 +323,11 @@ class FactionSelection(QtWidgets.QWizardPage):
 
     @property
     def selected_blue_faction(self) -> Faction:
-        return db.FACTIONS[self.blueFactionSelect.currentText()]
+        return FACTIONS[self.blueFactionSelect.currentText()]
 
     @property
     def selected_red_faction(self) -> Faction:
-        return db.FACTIONS[self.redFactionSelect.currentText()]
+        return FACTIONS[self.redFactionSelect.currentText()]
 
 
 class TheaterConfiguration(QtWidgets.QWizardPage):
@@ -296,13 +358,13 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
             text="Show incompatible campaigns"
         )
         show_incompatible_campaigns_checkbox.setChecked(False)
-        campaignList = QCampaignList(
+        self.campaignList = QCampaignList(
             campaigns, show_incompatible_campaigns_checkbox.isChecked()
         )
         show_incompatible_campaigns_checkbox.toggled.connect(
-            lambda checked: campaignList.setup_content(show_incompatible=checked)
+            lambda checked: self.campaignList.setup_content(show_incompatible=checked)
         )
-        self.registerField("selectedCampaign", campaignList)
+        self.registerField("selectedCampaign", self.campaignList)
 
         # Faction description
         self.campaignMapDescription = QTextEdit("")
@@ -335,12 +397,12 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
 
         def onTimePeriodChanged():
             self.calendar.setSelectedDate(
-                list(db.TIME_PERIODS.values())[timePeriodSelect.currentIndex()]
+                list(TIME_PERIODS.values())[timePeriodSelect.currentIndex()]
             )
 
         timePeriodSelect.currentTextChanged.connect(onTimePeriodChanged)
 
-        for r in db.TIME_PERIODS:
+        for r in TIME_PERIODS:
             timePeriodSelect.addItem(r)
         timePeriod.setBuddy(timePeriodSelect)
         timePeriodSelect.setCurrentIndex(21)
@@ -362,19 +424,34 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
             template_perf = jinja_env.get_template(
                 "campaign_performance_template_EN.j2"
             )
-            campaign = campaignList.selected_campaign
+            campaign = self.campaignList.selected_campaign
             self.setField("selectedCampaign", campaign)
+            if campaign is None:
+                self.campaignMapDescription.setText("No campaign selected")
+                self.performanceText.setText("No campaign selected")
+                return
+
             self.campaignMapDescription.setText(template.render({"campaign": campaign}))
             self.faction_selection.setDefaultFactions(campaign)
             self.performanceText.setText(
                 template_perf.render({"performance": campaign.performance})
             )
 
-        campaignList.selectionModel().setCurrentIndex(
-            campaignList.indexAt(QPoint(1, 1)), QItemSelectionModel.Rows
+            if (start_date := campaign.recommended_start_date) is not None:
+                self.calendar.setSelectedDate(
+                    QDate(start_date.year, start_date.month, start_date.day)
+                )
+                timePeriodPreset.setChecked(False)
+            else:
+                timePeriodPreset.setChecked(True)
+
+        self.campaignList.selectionModel().setCurrentIndex(
+            self.campaignList.indexAt(QPoint(1, 1)), QItemSelectionModel.Rows
         )
 
-        campaignList.selectionModel().selectionChanged.connect(on_campaign_selected)
+        self.campaignList.selectionModel().selectionChanged.connect(
+            on_campaign_selected
+        )
         on_campaign_selected()
 
         docsText = QtWidgets.QLabel(
@@ -401,7 +478,7 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
 
         layout = QtWidgets.QGridLayout()
         layout.setColumnMinimumWidth(0, 20)
-        layout.addWidget(campaignList, 0, 0, 5, 1)
+        layout.addWidget(self.campaignList, 0, 0, 5, 1)
         layout.addWidget(show_incompatible_campaigns_checkbox, 5, 0, 1, 1)
         layout.addWidget(docsText, 6, 0, 1, 1)
         layout.addWidget(self.campaignMapDescription, 0, 1, 1, 1)
@@ -452,11 +529,13 @@ class DifficultyAndAutomationOptions(QtWidgets.QWizardPage):
         economy_layout = QtWidgets.QVBoxLayout()
         economy_group.setLayout(economy_layout)
 
-        player_income = TenthsSpinSlider("Player income multiplier", 0, 50, 10)
+        economy_layout.addWidget(QLabel("Player income multiplier"))
+        player_income = FloatSpinSlider(0, 5, 1, divisor=10)
         self.registerField("player_income_multiplier", player_income.spinner)
         economy_layout.addLayout(player_income)
 
-        enemy_income = TenthsSpinSlider("Enemy income multiplier", 0, 50, 10)
+        economy_layout.addWidget(QLabel("Enemy income multiplier"))
+        enemy_income = FloatSpinSlider(0, 5, 1, divisor=10)
         self.registerField("enemy_income_multiplier", enemy_income.spinner)
         economy_layout.addLayout(enemy_income)
 
@@ -514,7 +593,7 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         no_enemy_navy = QtWidgets.QCheckBox()
         self.registerField("no_enemy_navy", no_enemy_navy)
         desired_player_mission_duration = TimeInputs(
-            "Desired mission duration", DEFAULT_MISSION_LENGTH
+            DEFAULT_MISSION_LENGTH, minimum=30, maximum=150
         )
         self.registerField(
             "desired_player_mission_duration", desired_player_mission_duration.spinner
@@ -531,7 +610,8 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         generatorLayout.addWidget(no_player_navy, 4, 1)
         generatorLayout.addWidget(QtWidgets.QLabel("No Enemy Navy"), 5, 0)
         generatorLayout.addWidget(no_enemy_navy, 5, 1)
-        generatorLayout.addLayout(desired_player_mission_duration, 6, 0)
+        generatorLayout.addWidget(QtWidgets.QLabel("Desired mission duration"), 6, 0)
+        generatorLayout.addLayout(desired_player_mission_duration, 7, 0)
         generatorSettingsGroup.setLayout(generatorLayout)
 
         modSettingsGroup = QtWidgets.QGroupBox("Mod Settings")
@@ -539,8 +619,12 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         self.registerField("a4_skyhawk", a4_skyhawk)
         hercules = QtWidgets.QCheckBox()
         self.registerField("hercules", hercules)
+        uh_60l = QtWidgets.QCheckBox()
+        self.registerField("uh_60l", uh_60l)
         f22_raptor = QtWidgets.QCheckBox()
         self.registerField("f22_raptor", f22_raptor)
+        f104_starfighter = QtWidgets.QCheckBox()
+        self.registerField("f104_starfighter", f104_starfighter)
         jas39_gripen = QtWidgets.QCheckBox()
         self.registerField("jas39_gripen", jas39_gripen)
         su57_felon = QtWidgets.QCheckBox()
@@ -556,20 +640,38 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         modHelpText.setAlignment(Qt.AlignCenter)
 
         modLayout = QtWidgets.QGridLayout()
-        modLayout.addWidget(QtWidgets.QLabel("A-4E Skyhawk"), 1, 0)
-        modLayout.addWidget(a4_skyhawk, 1, 1)
-        modLayout.addWidget(QtWidgets.QLabel("F-22A Raptor"), 2, 0)
-        modLayout.addWidget(f22_raptor, 2, 1)
-        modLayout.addWidget(QtWidgets.QLabel("C-130J-30 Super Hercules"), 3, 0)
-        modLayout.addWidget(hercules, 3, 1)
-        modLayout.addWidget(QtWidgets.QLabel("JAS 39 Gripen"), 4, 0)
-        modLayout.addWidget(jas39_gripen, 4, 1)
-        modLayout.addWidget(QtWidgets.QLabel("Su-57 Felon"), 5, 0)
-        modLayout.addWidget(su57_felon, 5, 1)
-        modLayout.addWidget(QtWidgets.QLabel("Frenchpack"), 6, 0)
-        modLayout.addWidget(frenchpack, 6, 1)
-        modLayout.addWidget(QtWidgets.QLabel("High Digit SAMs"), 7, 0)
-        modLayout.addWidget(high_digit_sams, 7, 1)
+        modLayout_row = 1
+        modLayout.addWidget(QtWidgets.QLabel("A-4E Skyhawk"), modLayout_row, 0)
+        modLayout.addWidget(a4_skyhawk, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("F-22A Raptor"), modLayout_row, 0)
+        modLayout.addWidget(f22_raptor, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("F-104 Starfighter"), modLayout_row, 0)
+        modLayout.addWidget(f104_starfighter, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(
+            QtWidgets.QLabel("C-130J-30 Super Hercules"), modLayout_row, 0
+        )
+        modLayout.addWidget(hercules, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("UH-60L Black Hawk"), modLayout_row, 0)
+        modLayout.addWidget(uh_60l, modLayout_row, 1)
+        modLayout_row += 1
+        # Section break here for readability
+        modLayout.addWidget(QtWidgets.QWidget(), modLayout_row, 0)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("JAS 39 Gripen"), modLayout_row, 0)
+        modLayout.addWidget(jas39_gripen, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("Su-57 Felon"), modLayout_row, 0)
+        modLayout.addWidget(su57_felon, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("Frenchpack"), modLayout_row, 0)
+        modLayout.addWidget(frenchpack, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("High Digit SAMs"), modLayout_row, 0)
+        modLayout.addWidget(high_digit_sams, modLayout_row, 1)
         modSettingsGroup.setLayout(modLayout)
 
         mlayout = QVBoxLayout()

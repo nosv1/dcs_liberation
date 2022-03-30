@@ -1,7 +1,10 @@
 """Logging APIs."""
 import logging
+import logging.config
 import os
-from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+import yaml
 
 
 def init_logging(version: str) -> None:
@@ -9,14 +12,11 @@ def init_logging(version: str) -> None:
     if not os.path.isdir("./logs"):
         os.mkdir("logs")
 
-    fmt = "%(asctime)s :: %(levelname)s :: %(message)s"
-    logging.basicConfig(level=logging.DEBUG, format=fmt)
-    logger = logging.getLogger()
+    resources = Path("resources")
+    log_config = resources / "default_logging.yaml"
+    if (custom_log_config := resources / "logging.yaml").exists():
+        log_config = custom_log_config
+    with log_config.open() as log_file:
+        logging.config.dictConfig(yaml.safe_load(log_file))
 
-    handler = RotatingFileHandler("./logs/liberation.log", "a", 5000000, 1)
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter(fmt))
-
-    logger.addHandler(handler)
-
-    logger.info(f"DCS Liberation {version}")
+    logging.info(f"DCS Liberation {version}")

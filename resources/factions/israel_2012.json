@@ -9,6 +9,7 @@
   "aircrafts": [
     "A-10C Thunderbolt II (Suite 3)",
     "AH-64D Apache Longbow",
+    "AH-64D Apache Longbow (AI)",
     "C-130",
     "C-130J-30 Super Hercules",
     "F-15C Eagle",
@@ -44,25 +45,22 @@
     "Infantry M4",
     "MANPADS Stinger"
   ],
-  "air_defenses": [
-    "ChaparralGenerator",
-    "HawkGenerator",
-    "PatriotGenerator",
-    "VulcanGenerator"
+  "preset_groups": [
+    "Hawk",
+    "Patriot"
   ],
-  "ewrs": [
-    "HawkEwrGenerator"
+  "naval_units": [
+    "DDG Arleigh Burke IIa"
   ],
-  "aircraft_carrier": [],
-  "helicopter_carrier": [],
-  "destroyers": [],
-  "cruisers": [],
+  "missiles": [],
+  "air_defense_units": [
+    "SAM Hawk SR (AN/MPQ-50)",
+    "M163 Vulcan Air Defense System",
+    "M48 Chaparral"
+  ],
   "requirements": {},
   "carrier_names": [],
   "helicopter_carrier_names": [],
-  "navy_generators": [
-    "ArleighBurkeGroupGenerator"
-  ],
   "has_jtac": true,
   "jtac_unit": "MQ-9 Reaper",
   "liveries_overrides": {
@@ -93,5 +91,6 @@
     "Mirage 2000C": [
       "UAE Air Force"
     ]
-  }
+  },
+  "unrestricted_satnav": true
 }
