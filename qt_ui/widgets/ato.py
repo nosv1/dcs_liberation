@@ -352,6 +352,10 @@ class QPackagePanel(QGroupBox):
         self.button_row = QHBoxLayout()
         self.vbox.addLayout(self.button_row)
 
+        self.regenerate_button = QPushButton("Regenerate")
+        self.regenerate_button.clicked.connect(self.on_regenerate)
+        self.button_row.addWidget(self.regenerate_button)
+
         self.edit_button = QPushButton("Edit")
         self.edit_button.clicked.connect(self.on_edit)
         self.button_row.addWidget(self.edit_button)
@@ -388,6 +392,10 @@ class QPackagePanel(QGroupBox):
             GameUpdateSignal.get_instance().select_package(None)
         else:
             GameUpdateSignal.get_instance().select_package(index.row())
+
+    def on_regenerate(self) -> None:
+        """ Regenerates the packages using packageplanningtask.py"""
+        self.ato_model.game_model.game.initialize_turn()
 
     def on_edit(self) -> None:
         """Opens the package edit dialog."""

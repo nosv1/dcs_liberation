@@ -135,12 +135,13 @@ def run_ui(game: Optional[Game]) -> None:
     try:
         liberation_install.replace_mission_scripting_file()
     except:
-        error_dialog = QtWidgets.QErrorMessage()
-        error_dialog.setWindowTitle("Wrong DCS installation directory.")
-        error_dialog.showMessage(
-            "Unable to modify Mission Scripting file. Possible issues with rights. Try running as admin, or please perform the modification of the MissionScripting file manually."
-        )
-        error_dialog.exec_()
+        pass
+        # error_dialog = QtWidgets.QErrorMessage()
+        # error_dialog.setWindowTitle("Wrong DCS installation directory.")
+        # error_dialog.showMessage(
+        #     "Unable to modify Mission Scripting file. Possible issues with rights. Try running as admin, or please perform the modification of the MissionScripting file manually."
+        # )
+        # error_dialog.exec_()
 
     # Apply CSS (need works)
     GameUpdateSignal()

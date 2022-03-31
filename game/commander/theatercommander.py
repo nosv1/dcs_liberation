@@ -70,7 +70,9 @@ class TheaterCommander(Planner[TheaterState, TheaterCommanderTask]):
     def __init__(self, game: Game, player: bool) -> None:
         super().__init__(
             PlanNextAction(
-                aircraft_cold_start=game.settings.default_start_type == "Cold"
+                game=game,
+                player=player,
+                aircraft_cold_start=game.settings.default_start_type == "Cold",
             )
         )
         self.game = game

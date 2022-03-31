@@ -3,6 +3,7 @@ from typing import List, Optional
 from PySide2.QtWidgets import (
     QDialog,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QMessageBox,
@@ -34,7 +35,8 @@ class QTopPanel(QFrame):
         self.game_model = game_model
         self.dialog: Optional[QDialog] = None
 
-        self.setMaximumHeight(70)
+        # was 70
+        self.setMaximumHeight(155)
         self.init_ui()
         GameUpdateSignal.get_instance().gameupdated.connect(self.setGame)
         GameUpdateSignal.get_instance().budgetupdated.connect(self.budget_update)
@@ -91,15 +93,18 @@ class QTopPanel(QFrame):
         self.proceedBoxLayout.addWidget(self.proceedButton)
         self.proceedBox.setLayout(self.proceedBoxLayout)
 
-        self.layout = QHBoxLayout()
+        self.layout = QGridLayout()
 
-        self.layout.addWidget(self.factionsInfos)
-        self.layout.addWidget(self.conditionsWidget)
-        self.layout.addWidget(self.budgetBox)
-        self.layout.addWidget(self.intel_box)
-        self.layout.addWidget(self.buttonBox)
-        self.layout.addStretch(1)
-        self.layout.addWidget(self.proceedBox)
+        # row 1
+        self.layout.addWidget(self.factionsInfos, 0, 0)
+        self.layout.addWidget(self.conditionsWidget, 0, 1, 1, 3)
+        self.layout.addWidget(self.proceedBox, 0, 4)
+
+        # row 2
+        self.layout.addWidget(self.budgetBox, 1, 0)
+        self.layout.addWidget(self.intel_box, 1, 1)
+        self.layout.addWidget(self.buttonBox, 1, 2)
+        # self.layout.addStretch(1)
 
         self.layout.setContentsMargins(0, 0, 0, 0)
 
