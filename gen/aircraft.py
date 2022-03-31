@@ -1711,7 +1711,9 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
 
     def build_strike(self) -> MovingPoint:
         waypoint = super().build()
-        for target in self.waypoint.targets:
+        targets = [t for t in self.waypoint.targets]
+        random.shuffle(targets)
+        for target in targets:
             bombing = Bombing(target.position, weapon_type=WeaponType.Auto)
             # If there is only one target, drop all ordnance in one pass.
             if len(self.waypoint.targets) == 1:
