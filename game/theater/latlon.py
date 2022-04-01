@@ -18,17 +18,33 @@ class LatLon:
         return degrees, minutes, seconds
 
     def _format_component(
-        self, dimension: float, hemispheres: Tuple[str, str], seconds_precision: int
+        self,
+        dimension: float,
+        hemispheres: Tuple[str, str],
+        seconds_precision: int,
+        include_seconds: bool = True,
     ) -> str:
         hemisphere = hemispheres[0] if dimension >= 0 else hemispheres[1]
         degrees, minutes, seconds = self._components(dimension)
-        return f"{degrees}°{minutes:02}'{seconds:02.{seconds_precision}f}\"{hemisphere}"
 
-    def format_dms(self, include_decimal_seconds: bool = False) -> str:
+        string = f"{hemisphere} {degrees}°{minutes:02}"
+        if include_seconds:
+            string += f"'{seconds:.{seconds_precision}f}\""
+        else:
+            string += f".{seconds/60*1000:.0f}'"
+        return string
+
+    def format_dms(
+        self, include_decimal_seconds: bool = False, include_seconds: bool = True
+    ) -> str:
         precision = 2 if include_decimal_seconds else 0
         return " ".join(
             [
-                self._format_component(self.latitude, ("N", "S"), precision),
-                self._format_component(self.longitude, ("E", "W"), precision),
+                self._format_component(
+                    self.latitude, ("N", "S"), precision, include_seconds
+                ),
+                self._format_component(
+                    self.longitude, ("E", "W"), precision, include_seconds
+                ),
             ]
         )
