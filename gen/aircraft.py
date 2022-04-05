@@ -1734,11 +1734,16 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
             if self.flight == flight:
                 strike_flights_ahead = total_strike_flights - 1
 
+        # default targets
+        targets = [t for t in self.waypoint.targets]
+
+        # if is strike flight plan
         if isinstance(self.flight.flight_plan, StrikeFlightPlan):
             logging.debug(f"strike_flights_ahead: {strike_flights_ahead}")
             logging.debug(f"targets: {len(self.flight.flight_plan.targets)}")
 
             shift_amount = int(len(self.waypoint.targets) / total_strike_flights)
+            # if there are other strikes in the package, specifically, before this flight
             if strike_flights_ahead > 0:
                 # ex. if 2 total strike filghts, 1 stirke flight ahead, and 8 targets, shift by 1 * (8 / 2) = 4
                 start_index = strike_flights_ahead * shift_amount
@@ -1748,9 +1753,6 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
                 logging.info(
                     f"Shifting strike targets to {[self.flight.flight_plan.targets.index(t) + 1 for t in targets]}"
                 )
-        else:
-            # not shifting if no strike flights counted ahead of this flight
-            targets = [t for t in self.waypoint.targets]
 
         for target in targets:
             bombing = Bombing(target.position, weapon_type=WeaponType.Auto)
