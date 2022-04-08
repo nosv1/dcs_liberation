@@ -29,5 +29,6 @@ class PlanCas(PackagePlanningTask[FrontLine]):
         state.vulnerable_front_lines.remove(self.target)
 
     def propose_flights(self) -> None:
+        self.propose_flight(FlightType.SEAD, 2)
         self.propose_flight(FlightType.CAS, 2)
         self.propose_flight(FlightType.TARCAP, 2)

@@ -79,14 +79,17 @@ class PlanNextAction(CompoundTask[TheaterState]):
 
         # priority 2 - Defend Bases
         defend_bases = False
-        attack_garrisons = False
+        capture_bases = False
+        interdict_reinforcements = False
 
         if ground_ratio < 0.8:  # outnumbered so prioritize weakening enemy front line
             yield [DefendBases()]
-            yield [AttackGarrisons()]
+            yield [InterdictReinforcements()]
+            yield [CaptureBases()]
             defend_bases = True
-            attack_garrisons = True
-            logger.debug("2 - defend_bases")
+            capture_bases = True
+            interdict_reinforcements = True
+            logger.debug("2 - defend_bases / capture_bases / interdict_reinforcements")
 
         # priority 3 - Attack Opposer's Infrastructure and Protect Air Space
         protect_air_space = False
@@ -110,17 +113,23 @@ class PlanNextAction(CompoundTask[TheaterState]):
             logger.debug("4 - attack_buildings")
 
         # priority 5 - Capture Opposer's Base(s)
-        capture_base = False
+        capture_bases = False
+        attack_garrisons = False
 
         if ground_ratio > 1.4:  # advantage so prioritize capture base
             yield [CaptureBases()]
-            capture_base = True
-            logger.debug("5 - capture_base")
+            yield [AttackGarrisons()]
+            capture_bases = True
+            logger.debug("5 - capture_bases")
 
         # priority 6 - whatever we haven't done yet, but already checked for
         if not defend_bases:
             yield [DefendBases()]
             logger.debug("6 - defend_bases")
+
+        if not interdict_reinforcements:
+            yield [InterdictReinforcements()]
+            logger.debug("6 - interdict_reinforcements")
 
         if not protect_air_space:
             yield [ProtectAirSpace()]
@@ -130,22 +139,19 @@ class PlanNextAction(CompoundTask[TheaterState]):
             yield [AttackBuildings()]
             logger.debug("6 - attack_buildings")
 
-        if not capture_base:
+        if not capture_bases:
             yield [CaptureBases()]
-            logger.debug("6 - capture_base")
+            logger.debug("6 - capture_bases")
+
+        if not attack_garrisons:
+            yield [AttackGarrisons()]
+            logger.debug("6 - attack_garrisons")
 
         # priority 7 - the rest
-        yield [InterdictReinforcements()]
-        logger.debug("7 - interdict_reinforcements")
-
         yield [DegradeIads()]
         logger.debug("7 - degrade_iads")
 
-        # cheaty tactics, it's too easy to destory ammo or runways, so low priority
-        if not attack_garrisons:
-            yield [AttackGarrisons()]
-            logger.debug("8 - attack_garrisons")
-
+        # cheaty tactics
         if not attack_air_infrastructure:
             yield [AttackAirInfrastructure(self.aircraft_cold_start)]
             logger.debug("8 - attack_air_infrastructure")

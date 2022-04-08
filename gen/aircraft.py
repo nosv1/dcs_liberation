@@ -1737,7 +1737,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
         # default targets
         targets = [t for t in self.waypoint.targets]
 
-        # if is strike flight plan
+        # if is StrikeFlightPlan, oppose to a CustomFlightPlan...
         if isinstance(self.flight.flight_plan, StrikeFlightPlan):
             logging.debug(f"strike_flights_ahead: {strike_flights_ahead}")
             logging.debug(f"targets: {len(self.flight.flight_plan.targets)}")
