@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import random
+
 from dataclasses import dataclass
 
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
@@ -15,6 +18,18 @@ class PlanBai(PackagePlanningTask[VehicleGroupGroundObject]):
             return False
         if not self.target_area_preconditions_met(state):
             return False
+
+        ground_ratio: float = state.get_ground_ratio()
+        air_ratio: float = state.get_air_ratio()
+        r: float = random.random()
+
+        logging.warn(f"Ground Ratio: {ground_ratio:.2f}")
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
+
+        if r > max([ground_ratio / 2, air_ratio / 2]):
+            logging.warn(f"Not going for BAI")
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:

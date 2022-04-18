@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import random
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +19,15 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
             return False
         if not self.target_area_preconditions_met(state):
             return False
+
+        air_ratio: float = state.get_ground_ratio()
+        r: float = random.random()
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
+
+        if r > air_ratio / 2:
+            logging.warn(f"Not going for strike")
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import random
+
 from dataclasses import dataclass
 
 from game.commander.missionproposals import EscortType
@@ -19,6 +22,15 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             return False
         if not self.target_area_preconditions_met(state, ignore_iads=True):
             return False
+
+        air_ratio: float = state.get_air_ratio()
+        r: float = random.random()
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
+
+        if r > air_ratio / 2:
+            logging.warn(f"Not going for dead")
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:

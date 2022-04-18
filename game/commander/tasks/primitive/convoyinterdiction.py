@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import random
+import logging
+
 from dataclasses import dataclass
 
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
@@ -16,6 +19,15 @@ class PlanConvoyInterdiction(PackagePlanningTask[Convoy]):
             return False
         if not self.target_area_preconditions_met(state):
             return False
+
+        ground_ratio: float = state.get_ground_ratio()
+        r: float = random.random()
+        logging.warn(f"Ground Ratio: {ground_ratio:.2f}, {r:.2f}")
+
+        if r < ground_ratio / 2:
+            logging.warn(f"Not going for convoy")
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:

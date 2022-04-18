@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Union, Optional
 from game.commander.garrisons import Garrisons
 from game.commander.objectivefinder import ObjectiveFinder
 from game.htn import WorldState
+from game.models.game_stats import GameTurnMetadata
 from game.profiling import MultiEventTracer
 from game.settings import Settings
 from game.squadrons import AirWing
@@ -131,6 +132,35 @@ class TheaterState(WorldState["TheaterState"]):
             threatening_air_defenses=self.threatening_air_defenses,
             detecting_air_defenses=self.detecting_air_defenses,
         )
+
+    def get_air_ratio(self) -> float:
+
+        data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
+            -1
+        ]
+
+        air_ratio: float = (1 + data.allied_units.aircraft_count) / (
+            1 + data.enemy_units.aircraft_count
+        )
+
+        if not self.context.coalition.player:
+            air_ratio = 1 / air_ratio
+
+        return air_ratio
+
+    def get_ground_ratio(self) -> float:
+        data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
+            -1
+        ]
+
+        ground_ratio: float = (1 + data.allied_units.vehicles_count) / (
+            1 + data.enemy_units.vehicles_count
+        )
+
+        if not self.context.coalition.player:
+            ground_ratio = 1 / ground_ratio
+
+        return ground_ratio
 
     @classmethod
     def from_game(
