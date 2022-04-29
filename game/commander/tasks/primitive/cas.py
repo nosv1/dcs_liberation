@@ -38,7 +38,7 @@ class PlanCas(PackagePlanningTask[FrontLine]):
         logging.warn(f"Enemy CP: {enemy_cp.name}")
         logging.warn(f"Friendly CP: {friendly_cp.name}")
         logging.warn(
-            f"Active Front Lines: {[(fl[0].name, fl[1].name) for fl in state.front_line_stances.items()]}"
+            f"Active Front Lines: {[(fl[0].name, fl[1].name) for fl in state.front_line_stances.items() if None not in fl]}"
         )
         logging.warn(f"Ground Ratio: {ground_ratio:.2f}, RND {r:.2f}")
 
@@ -66,9 +66,10 @@ class PlanCas(PackagePlanningTask[FrontLine]):
             player=state.context.coalition.player
         )
         for front_line, stance in state.front_line_stances.items():
-            if friendly_cp.name in front_line.name:
-                return stance.name in [
-                    "BREAKTHROUGH",
-                    "ELIMINATION",
-                    "AMBUSH",
-                ]
+            if stance:
+                if friendly_cp.name in front_line.name:
+                    return stance.name in [
+                        "BREAKTHROUGH",
+                        "ELIMINATION",
+                        "AMBUSH",
+                    ]
