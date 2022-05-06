@@ -21,7 +21,7 @@ from game.income import Income
 
 @dataclass(frozen=True)
 class PlanNextAction(CompoundTask[TheaterState]):
-    game: Game
+    # game: Game
     player: bool
     aircraft_cold_start: bool
 

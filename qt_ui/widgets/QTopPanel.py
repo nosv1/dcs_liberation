@@ -39,7 +39,7 @@ class QTopPanel(QFrame):
 
         # was 70
         self.setMaximumHeight(155)
-        self.init_ui()
+        # self.init_ui()
         GameUpdateSignal.get_instance().gameupdated.connect(self.setGame)
         GameUpdateSignal.get_instance().budgetupdated.connect(self.budget_update)
 

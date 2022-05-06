@@ -32,6 +32,7 @@ from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 from dcs.mission import Mission
+from dcs.unit import Unit
 from tabulate import tabulate
 
 from game.ato.flighttype import FlightType
@@ -41,7 +42,7 @@ from game.data.alic import AlicCodes
 from game.dcs.aircrafttype import AircraftType
 from game.radio.radios import RadioFrequency
 from game.runways import RunwayData
-from game.theater import TheaterGroundObject, TheaterUnit
+from game.theater import ConflictTheater, TheaterGroundObject, TheaterUnit
 from game.theater.bullseye import Bullseye
 from game.utils import Distance, UnitSystem, meters, mps, pounds
 from game.weather import Weather
