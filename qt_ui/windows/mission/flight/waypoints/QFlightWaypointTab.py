@@ -107,9 +107,9 @@ class QFlightWaypointTab(QFrame):
         # If the waypoint is a target waypoint and is not the last target
         # waypoint, we don't need to degrade.
         if isinstance(self.flight.flight_plan, FormationAttackFlightPlan):
-            is_target = waypoint in self.flight.flight_plan.targets
-            if is_target and len(self.flight.flight_plan.targets) > 1:
-                self.flight.flight_plan.targets.remove(waypoint)
+            is_target = waypoint in self.flight.targets
+            if is_target and len(self.flight.flight_plan.builder_type.tar) > 1:
+                self.flight.targets.remove(waypoint)
                 return
 
         self.degrade_to_custom_flight_plan()
