@@ -9,7 +9,7 @@ from game.commander.tasks.packageplanningtask import PackagePlanningTask
 from game.commander.theaterstate import TheaterState
 from game.theater import FrontLine
 from game.theater.controlpoint import ControlPoint
-from gen.flights.flighttype import FlightType
+from game.ato.flight import FlightType
 
 
 @dataclass
