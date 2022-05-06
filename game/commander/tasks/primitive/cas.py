@@ -61,7 +61,7 @@ class PlanCas(PackagePlanningTask[FrontLine]):
         self.propose_flight(FlightType.SEAD, 2)
         self.propose_flight(FlightType.TARCAP, 2)
 
-    def is_friendly_cp_offensive(self, state: TheaterState) -> float:
+    def is_friendly_cp_offensive(self, state: TheaterState) -> bool:
         friendly_cp: ControlPoint = self.target.control_point_friendly_to(
             player=state.context.coalition.player
         )
@@ -73,3 +73,4 @@ class PlanCas(PackagePlanningTask[FrontLine]):
                         "ELIMINATION",
                         "AMBUSH",
                     ]
+        return False

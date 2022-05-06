@@ -19,10 +19,13 @@ from dcs.terrain import (
 )
 from dcs.terrain.terrain import Terrain
 from shapely import geometry, ops
+from pyproj import CRS, Transformer
 
 from .frontline import FrontLine
 from .iadsnetwork.iadsnetwork import IadsNetwork
 from .landmap import Landmap, load_landmap, poly_contains
+from .latlon import LatLon
+from .projections import TransverseMercator
 from .seasonalconditions import SeasonalConditions
 from ..utils import Heading
 
@@ -50,6 +53,12 @@ class ConflictTheater:
 
     def __init__(self) -> None:
         self.controlpoints: List[ControlPoint] = []
+        self.point_to_ll_transformer = Transformer.from_crs(
+            self.projection_parameters.to_crs(), CRS("WGS84")
+        )
+        self.ll_to_point_transformer = Transformer.from_crs(
+            CRS("WGS84"), self.projection_parameters.to_crs()
+        )
         """
         self.land_poly = geometry.Polygon(self.landmap[0][0])
         for x in self.landmap[1]:
@@ -229,6 +238,18 @@ class ConflictTheater:
             if cp.name == name:
                 return cp
         raise KeyError(f"Cannot find ControlPoint named {name}")
+
+    def point_to_ll(self, point: Point) -> LatLon:
+        lat, lon = self.point_to_ll_transformer.transform(point.x, point.y)
+        return LatLon(lat, lon)
+
+    def ll_to_point(self, ll: LatLon) -> Point:
+        x, y = self.ll_to_point_transformer.transform(ll.latitude, ll.longitude)
+        return Point(x, y, self.terrain)
+
+    @property
+    def projection_parameters(self) -> TransverseMercator:
+        raise NotImplementedError
 
     @property
     def timezone(self) -> datetime.timezone:

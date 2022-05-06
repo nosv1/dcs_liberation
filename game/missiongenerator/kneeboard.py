@@ -32,7 +32,6 @@ from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 from dcs.mission import Mission
-from dcs.unit import Unit
 from tabulate import tabulate
 
 from game.ato.flighttype import FlightType
@@ -700,7 +699,7 @@ class LatitudeLongituePage(KneeboardPage):
         self.theater = theater
 
     @property
-    def target_units(self) -> Iterator[Unit]:
+    def target_units(self) -> Iterator[TheaterUnit]:
         if isinstance(self.flight.package.target, TheaterGroundObject):
             yield from self.flight.package.target.units
 
@@ -729,7 +728,7 @@ class LatitudeLongituePage(KneeboardPage):
     def waypoint_info_row(self, waypoint: FlightWaypoint) -> List[List[str]]:
         ll = self.theater.point_to_ll(waypoint.position)
         return [
-            [waypoint.name, ll.format_dms(include_seconds=False)],
+            [waypoint.name, ll.format_dms(include_decimal_seconds=False)],
             ["", ll.format_dms()],
             ["", ll.format_dms(include_decimal_seconds=True)],
         ]
