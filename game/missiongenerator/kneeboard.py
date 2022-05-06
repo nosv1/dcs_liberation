@@ -688,50 +688,50 @@ class NotesPage(KneeboardPage):
         writer.write(path)
 
 
-class LatitudeLongituePage(KneeboardPage):
-    """A kneeboard page containing each varition of the waypoints' lat/long."""
+# class LatitudeLongituePage(KneeboardPage):
+#     """A kneeboard page containing each varition of the waypoints' lat/long."""
 
-    def __init__(
-        self, flight: FlightData, dark_kneeboard: bool, theater: ConflictTheater
-    ) -> None:
-        self.flight = flight
-        self.dark_kneeboard = dark_kneeboard
-        self.theater = theater
+#     def __init__(
+#         self, flight: FlightData, dark_kneeboard: bool, theater: ConflictTheater
+#     ) -> None:
+#         self.flight = flight
+#         self.dark_kneeboard = dark_kneeboard
+#         self.theater = theater
 
-    @property
-    def target_units(self) -> Iterator[TheaterUnit]:
-        if isinstance(self.flight.package.target, TheaterGroundObject):
-            yield from self.flight.package.target.units
+#     @property
+#     def target_units(self) -> Iterator[TheaterUnit]:
+#         if isinstance(self.flight.package.target, TheaterGroundObject):
+#             yield from self.flight.package.target.units
 
-    def write(self, path: Path) -> None:
-        writer = KneeboardPageWriter(dark_theme=self.dark_kneeboard)
-        if self.flight.custom_name is not None:
-            custom_name_title = ' ("{}")'.format(self.flight.custom_name)
-        else:
-            custom_name_title = ""
-        writer.title(
-            f"{self.flight.callsign} Waypoint Lat/Long Variations {custom_name_title}"
-        )
+#     def write(self, path: Path) -> None:
+#         writer = KneeboardPageWriter(dark_theme=self.dark_kneeboard)
+#         if self.flight.custom_name is not None:
+#             custom_name_title = ' ("{}")'.format(self.flight.custom_name)
+#         else:
+#             custom_name_title = ""
+#         writer.title(
+#             f"{self.flight.callsign} Waypoint Lat/Long Variations {custom_name_title}"
+#         )
 
-        cells = [
-            row
-            for info in (self.waypoint_info_row(p) for p in self.flight.waypoints)
-            for row in info
-        ]
-        writer.table(
-            cells,
-            headers=["Description", "Location"],
-        )
+#         cells = [
+#             row
+#             for info in (self.waypoint_info_row(p) for p in self.flight.waypoints)
+#             for row in info
+#         ]
+#         writer.table(
+#             cells,
+#             headers=["Description", "Location"],
+#         )
 
-        writer.write(path)
+#         writer.write(path)
 
-    def waypoint_info_row(self, waypoint: FlightWaypoint) -> List[List[str]]:
-        ll = self.theater.point_to_ll(waypoint.position)
-        return [
-            [waypoint.name, ll.format_dms(include_decimal_seconds=False)],
-            ["", ll.format_dms()],
-            ["", ll.format_dms(include_decimal_seconds=True)],
-        ]
+#     def waypoint_info_row(self, waypoint: FlightWaypoint) -> List[List[str]]:
+#         ll = self.theater.point_to_ll(waypoint.position)
+#         return [
+#             [waypoint.name, ll.format_dms(include_decimal_seconds=False)],
+#             ["", ll.format_dms()],
+#             ["", ll.format_dms(include_decimal_seconds=True)],
+#         ]
 
 
 class KneeboardGenerator(MissionInfoGenerator):
@@ -809,7 +809,7 @@ class KneeboardGenerator(MissionInfoGenerator):
                 zoned_time,
                 self.dark_kneeboard,
             ),
-            LatitudeLongituePage(flight, self.dark_kneeboard, self.game.theater),
+            # LatitudeLongituePage(flight, self.dark_kneeboard, self.game.theater),
         ]
 
         # Only create the notes page if there are notes to show.

@@ -43,15 +43,15 @@ class SeadIngressBuilder(PydcsWaypointBuilder):
                 engage_task = EngageGroup(miz_group.id)
                 engage_task.params["weaponType"] = DcsWeaponType.Guided.value
                 # Ensure that they fire all ammunition in one attack pass
-                engage_task.params["expend"] = Expend.All.value
+                engage_task.params["expend"] = Expend.Auto.value
                 waypoint.tasks.append(engage_task)
             else:
                 # All non ARM types like Decoys will use the normal AttackGroup Task
                 attack_task = AttackGroup(
                     miz_group.id,
                     weapon_type=DcsWeaponType.Guided,
-                    group_attack=True,
-                    expend=Expend.All,
+                    # group_attack=True,
+                    # expend=Expend.Auto,
                 )
                 waypoint.tasks.append(attack_task)
 

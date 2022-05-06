@@ -26,7 +26,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
             center += target.position
         center /= len(targets)
         bombing = Bombing(
-            center, weapon_type=WeaponType.Bombs, expend=Expend.All, group_attack=True
+            center, weapon_type=WeaponType.Bombs, expend=Expend.Auto, group_attack=True
         )
         waypoint.tasks.append(bombing)
 
@@ -37,7 +37,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
             )
             # If there is only one target, drop all ordnance in one pass.
             if len(self.waypoint.targets) == 1:
-                bombing.params["expend"] = Expend.All.value
+                bombing.params["expend"] = Expend.Auto.value
             waypoint.tasks.append(bombing)
 
             # Register special waypoints
