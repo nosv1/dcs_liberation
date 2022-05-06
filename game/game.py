@@ -3,46 +3,49 @@ from __future__ import annotations
 import itertools
 import logging
 import math
-from collections import Iterator
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, List, Type, Union, cast, TYPE_CHECKING
+from typing import Any, List, TYPE_CHECKING, Type, Union, cast
+from uuid import UUID
 
-from dcs.countries import Switzerland, UnitedNationsPeacekeepers, USAFAggressors
+from dcs.countries import Switzerland, USAFAggressors, UnitedNationsPeacekeepers
 from dcs.country import Country
 from dcs.mapping import Point
 from dcs.task import CAP, CAS, PinpointStrike
 from dcs.vehicles import AirDefence
 from faker import Faker
 
+from game.ato.closestairfields import ObjectiveDistanceCache
+from game.ground_forces.ai_ground_planner import GroundPlanner
 from game.models.game_stats import GameStats
 from game.plugins import LuaPluginManager
-from gen import naming
-from gen.ato import AirTaskingOrder
-from gen.conflictgen import Conflict
-from gen.flights.closestairfields import ObjectiveDistanceCache
-from gen.flights.flight import FlightType
-from gen.ground_forces.ai_ground_planner import GroundPlanner
-from . import persistency
+from game.utils import Distance
+from . import naming, persistency
+from .ato.flighttype import FlightType
 from .campaignloader import CampaignAirWingConfig
 from .coalition import Coalition
-from .debriefing import Debriefing
-from .event.event import Event
-from .event.frontlineattack import FrontlineAttackEvent
-from .factions.faction import Faction
+from .db.gamedb import GameDb
 from .infos.information import Information
-from .navmesh import NavMesh
 from .profiling import logged_duration
 from .settings import Settings
-from .theater import ConflictTheater, ControlPoint
+from .theater import ConflictTheater
 from .theater.bullseye import Bullseye
+from .theater.theatergroundobject import (
+    EwrGroundObject,
+    SamGroundObject,
+    TheaterGroundObject,
+)
 from .theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
-from .threatzones import ThreatZones
-from .unitmap import UnitMap
 from .weather import Conditions, TimeOfDay
 
 if TYPE_CHECKING:
+    from .ato.airtaaskingorder import AirTaskingOrder
+    from .factions.faction import Faction
+    from .navmesh import NavMesh
+    from .sim import GameUpdateEvents
     from .squadrons import AirWing
+    from .threatzones import ThreatZones
 
 COMMISION_UNIT_VARIETY = 4
 COMMISION_LIMITS_SCALE = 1.5
@@ -97,14 +100,13 @@ class Game:
         enemy_budget: float,
     ) -> None:
         self.settings = settings
-        self.events: List[Event] = []
         self.theater = theater
         self.turn = 0
         # NB: This is the *start* date. It is never updated.
         self.date = date(start_date.year, start_date.month, start_date.day)
         self.game_stats = GameStats()
         self.notes = ""
-        self.ground_planners: dict[int, GroundPlanner] = {}
+        self.ground_planners: dict[UUID, GroundPlanner] = {}
         self.informations: list[Information] = []
         self.message("Game Start", "-" * 40)
         # Culling Zones are for areas around points of interest that contain things we may not wish to cull.
@@ -114,6 +116,8 @@ class Game:
         self.current_unit_id = 0
         self.current_group_id = 0
         self.name_generator = naming.namegen
+
+        self.db = GameDb()
 
         self.conditions = self.generate_conditions()
 
@@ -140,6 +144,9 @@ class Game:
     def coalitions(self) -> Iterator[Coalition]:
         yield self.blue
         yield self.red
+
+    def point_in_world(self, x: float, y: float) -> Point:
+        return Point(x, y, self.theater.terrain)
 
     def ato_for(self, player: bool) -> AirTaskingOrder:
         return self.coalition_for(player).ato
@@ -178,23 +185,6 @@ class Game:
     def country_for(self, player: bool) -> str:
         return self.coalition_for(player).country_name
 
-    def bullseye_for(self, player: bool) -> Bullseye:
-        return self.coalition_for(player).bullseye
-
-    def _generate_player_event(
-        self, event_class: Type[Event], player_cp: ControlPoint, enemy_cp: ControlPoint
-    ) -> None:
-        self.events.append(
-            event_class(
-                self,
-                player_cp,
-                enemy_cp,
-                enemy_cp.position,
-                self.blue.faction.name,
-                self.red.faction.name,
-            )
-        )
-
     @property
     def neutral_country(self) -> Type[Country]:
         """Return the best fitting country that can be used as neutral faction in the generated mission"""
@@ -206,14 +196,6 @@ class Game:
         else:
             return USAFAggressors
 
-    def _generate_events(self) -> None:
-        for front_line in self.theater.conflicts():
-            self._generate_player_event(
-                FrontlineAttackEvent,
-                front_line.blue_cp,
-                front_line.red_cp,
-            )
-
     def coalition_for(self, player: bool) -> Coalition:
         if player:
             return self.blue
@@ -222,22 +204,9 @@ class Game:
     def adjust_budget(self, amount: float, player: bool) -> None:
         self.coalition_for(player).adjust_budget(amount)
 
-    @staticmethod
-    def initiate_event(event: Event) -> UnitMap:
-        # assert event in self.events
-        logging.info("Generating {} (regular)".format(event))
-        return event.generate()
-
-    def finish_event(self, event: Event, debriefing: Debriefing) -> None:
-        logging.info("Finishing event {}".format(event))
-        event.commit(debriefing)
-
-        if event in self.events:
-            self.events.remove(event)
-        else:
-            logging.info("finish_event: event not in the events!")
-
     def on_load(self, game_still_initializing: bool = False) -> None:
+        from .sim import GameUpdateEvents
+
         if not hasattr(self, "name_generator"):
             self.name_generator = naming.namegen
         # Hack: Replace the global name generator state with the state from the save
@@ -250,9 +219,11 @@ class Game:
         ObjectiveDistanceCache.set_theater(self.theater)
         self.compute_unculled_zones()
         if not game_still_initializing:
-            self.compute_threat_zones()
+            # We don't need to push events that happen during load. The UI will fully
+            # reset when we're done.
+            self.compute_threat_zones(GameUpdateEvents())
 
-    def finish_turn(self, skipped: bool = False) -> None:
+    def finish_turn(self, events: GameUpdateEvents, skipped: bool = False) -> None:
         """Finalizes the current turn and advances to the next turn.
 
         This handles the turn-end portion of passing a turn. Initialization of the next
@@ -295,15 +266,31 @@ class Game:
 
         if not skipped:
             for cp in self.theater.player_points():
+                for front_line in cp.front_lines.values():
+                    front_line.update_position()
+                    events.update_front_line(front_line)
                 cp.base.affect_strength(+PLAYER_BASE_STRENGTH_RECOVERY)
 
         self.conditions = self.generate_conditions()
 
     def begin_turn_0(self) -> None:
         """Initialization for the first turn of the game."""
+        from .sim import GameUpdateEvents
+
+        # Build the IADS Network
+        with logged_duration("Generate IADS Network"):
+            self.theater.iads_network.initialize_network(self.theater.ground_objects)
+
+        for control_point in self.theater.controlpoints:
+            control_point.initialize_turn_0()
+            for tgo in control_point.connected_objectives:
+                self.db.tgos.add(tgo.id, tgo)
+
         self.blue.preinit_turn_0()
         self.red.preinit_turn_0()
-        self.initialize_turn()
+        # We don't need to actually stream events for turn zero because we haven't given
+        # *any* state to the UI yet, so it will need to do a full draw once we do.
+        self.initialize_turn(GameUpdateEvents())
 
     def pass_turn(self, no_action: bool = False) -> None:
         """Ends the current turn and initializes the new turn.
@@ -313,11 +300,20 @@ class Game:
         Args:
             no_action: True if the turn was skipped.
         """
+        from .server import EventStream
+        from .sim import GameUpdateEvents
+
+        events = GameUpdateEvents()
+
         logging.info("Pass turn")
         with logged_duration("Turn finalization"):
-            self.finish_turn(no_action)
+            self.finish_turn(events, no_action)
+
         with logged_duration("Turn initialization"):
-            self.initialize_turn()
+            self.initialize_turn(events)
+
+        events.begin_new_turn()
+        EventStream.put_nowait(events)
 
         # Autosave progress
         persistency.autosave(self)
@@ -342,7 +338,9 @@ class Game:
         self.blue.bullseye = Bullseye(enemy_cp.position)
         self.red.bullseye = Bullseye(player_cp.position)
 
-    def initialize_turn(self, for_red: bool = True, for_blue: bool = True) -> None:
+    def initialize_turn(
+        self, events: GameUpdateEvents, for_red: bool = True, for_blue: bool = True
+    ) -> None:
         """Performs turn initialization for the specified players.
 
         Turn initialization performs all of the beginning-of-turn actions. *End-of-turn*
@@ -373,11 +371,10 @@ class Game:
         impactful but also likely to be early, so they also cause a blue replan.
 
         Args:
+            events: Game update event container for turn initialization.
             for_red: True if opfor should be re-initialized.
             for_blue: True if the player coalition should be re-initialized.
         """
-        self.events = []
-        self._generate_events()
         self.set_bullseye()
 
         # Update statistics
@@ -390,7 +387,7 @@ class Game:
 
         # Plan flights & combat for next turn
         with logged_duration("Threat zone computation"):
-            self.compute_threat_zones()
+            self.compute_threat_zones(events)
 
         # Plan Coalition specific turn
         if for_blue:
@@ -438,11 +435,11 @@ class Game:
     def compute_transit_network_for(self, player: bool) -> TransitNetwork:
         return TransitNetworkBuilder(self.theater, player).build()
 
-    def compute_threat_zones(self) -> None:
-        self.blue.compute_threat_zones()
-        self.red.compute_threat_zones()
-        self.blue.compute_nav_meshes()
-        self.red.compute_nav_meshes()
+    def compute_threat_zones(self, events: GameUpdateEvents) -> None:
+        self.blue.compute_threat_zones(events)
+        self.red.compute_threat_zones(events)
+        self.blue.compute_nav_meshes(events)
+        self.red.compute_nav_meshes(events)
 
     def threat_zone_for(self, player: bool) -> ThreatZones:
         return self.coalition_for(player).threat_zone
@@ -454,11 +451,17 @@ class Game:
         """
         Compute the current conflict position(s) used for culling calculation
         """
+        from game.missiongenerator.frontlineconflictdescription import (
+            FrontLineConflictDescription,
+        )
+
         zones = []
 
         # By default, use the existing frontline conflict position
         for front_line in self.theater.conflicts():
-            position = Conflict.frontline_position(front_line, self.theater)
+            position = FrontLineConflictDescription.frontline_position(
+                front_line, self.theater
+            )
             zones.append(position[0])
             zones.append(front_line.blue_cp.position)
             zones.append(front_line.red_cp.position)
@@ -478,10 +481,7 @@ class Game:
                     d = cp.position.distance_to_point(cp2.position)
                     if d < min_distance:
                         min_distance = d
-                        cpoint = Point(
-                            (cp.position.x + cp2.position.x) / 2,
-                            (cp.position.y + cp2.position.y) / 2,
-                        )
+                        cpoint = cp.position.midpoint(cp2.position)
                         zones.append(cp.position)
                         zones.append(cp2.position)
                         break
@@ -501,15 +501,12 @@ class Game:
                 continue
             zones.append(package.target.position)
 
-        # Else 0,0, since we need a default value
-        # (in this case this means the whole map is owned by the same player, so it is not an issue)
-        if len(zones) == 0:
-            zones.append(Point(0, 0))
-
         self.__culling_zones = zones
 
     def add_destroyed_units(self, data: dict[str, Union[float, str]]) -> None:
-        pos = Point(cast(float, data["x"]), cast(float, data["z"]))
+        pos = Point(
+            cast(float, data["x"]), cast(float, data["z"]), self.theater.terrain
+        )
         if self.theater.is_on_land(pos):
             self.__destroyed_units.append(data)
 
@@ -528,6 +525,30 @@ class Game:
             if z.distance_to_point(pos) < self.settings.perf_culling_distance * 1000:
                 return False
         return True
+
+    def iads_considerate_culling(self, tgo: TheaterGroundObject) -> bool:
+        if not self.settings.perf_do_not_cull_threatening_iads:
+            return self.position_culled(tgo.position)
+        else:
+            if self.settings.perf_culling:
+                if isinstance(tgo, EwrGroundObject):
+                    max_detection_range = tgo.max_detection_range().meters
+                    for z in self.__culling_zones:
+                        seperation = z.distance_to_point(tgo.position)
+                        # Don't cull EWR if in detection range.
+                        if seperation < max_detection_range:
+                            return False
+                if isinstance(tgo, SamGroundObject):
+                    max_threat_range = tgo.max_threat_range().meters
+                    for z in self.__culling_zones:
+                        seperation = z.distance_to_point(tgo.position)
+                        # Create a 12nm buffer around nearby SAMs.
+                        respect_bubble = (
+                            max_threat_range + Distance.from_nautical_miles(12).meters
+                        )
+                        if seperation < respect_bubble:
+                            return False
+            return self.position_culled(tgo.position)
 
     def get_culling_zones(self) -> list[Point]:
         """

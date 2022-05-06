@@ -3,27 +3,27 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
-from collections import Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Union, Optional
+from typing import Optional, TYPE_CHECKING, Union
 
 from game.commander.garrisons import Garrisons
 from game.commander.objectivefinder import ObjectiveFinder
+from game.db import GameDb
+from game.ground_forces.combat_stance import CombatStance
 from game.htn import WorldState
 from game.models.game_stats import GameTurnMetadata
 from game.profiling import MultiEventTracer
 from game.settings import Settings
-from game.squadrons import AirWing
-from game.theater import ControlPoint, FrontLine, MissionTarget, ConflictTheater
+from game.theater import ConflictTheater, ControlPoint, FrontLine, MissionTarget
 from game.theater.theatergroundobject import (
-    TheaterGroundObject,
-    NavalGroundObject,
-    IadsGroundObject,
-    VehicleGroupGroundObject,
     BuildingGroundObject,
+    IadsGroundObject,
+    NavalGroundObject,
+    TheaterGroundObject,
+    VehicleGroupGroundObject,
 )
 from game.threatzones import ThreatZones
-from gen.ground_forces.combat_stance import CombatStance
 
 if TYPE_CHECKING:
     from game import Game
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PersistentContext:
+    game_db: GameDb
     coalition: Coalition
     theater: ConflictTheater
     turn: int
@@ -57,13 +58,14 @@ class TheaterState(WorldState["TheaterState"]):
     enemy_ships: list[NavalGroundObject]
     enemy_garrisons: dict[ControlPoint, Garrisons]
     oca_targets: list[ControlPoint]
-    strike_targets: list[TheaterGroundObject[Any]]
+    strike_targets: list[TheaterGroundObject]
     enemy_barcaps: list[ControlPoint]
     threat_zones: ThreatZones
 
     def _rebuild_threat_zones(self) -> None:
         """Recreates the theater's threat zones based on the current planned state."""
         self.threat_zones = ThreatZones.for_threats(
+            self.context.theater,
             self.context.coalition.opponent.doctrine,
             barcap_locations=self.enemy_barcaps,
             air_defenses=itertools.chain(self.enemy_air_defenses, self.enemy_ships),
@@ -171,7 +173,7 @@ class TheaterState(WorldState["TheaterState"]):
         ordered_capturable_points = finder.prioritized_unisolated_points()
 
         context = PersistentContext(
-            coalition, game.theater, game.turn, game.settings, tracer
+            game.db, coalition, game.theater, game.turn, game.settings, tracer
         )
 
         # Plan enough rounds of CAP that the target has coverage over the expected

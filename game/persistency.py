@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import pickle
 import shutil
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+
+from game.profiling import logged_duration
 
 if TYPE_CHECKING:
     from game import Game
@@ -38,8 +39,8 @@ def _autosave_path() -> str:
     return str(save_dir() / "autosave.liberation")
 
 
-def mission_path_for(name: str) -> str:
-    return os.path.join(base_path(), "Missions", name)
+def mission_path_for(name: str) -> Path:
+    return Path(base_path()) / "Missions" / name
 
 
 def load_game(path: str) -> Optional[Game]:
@@ -54,14 +55,15 @@ def load_game(path: str) -> Optional[Game]:
 
 
 def save_game(game: Game) -> bool:
-    try:
-        with open(_temporary_save_file(), "wb") as f:
-            pickle.dump(game, f)
-        shutil.copy(_temporary_save_file(), game.savepath)
-        return True
-    except Exception:
-        logging.exception("Could not save game")
-        return False
+    with logged_duration("Saving game"):
+        try:
+            with open(_temporary_save_file(), "wb") as f:
+                pickle.dump(game, f)
+            shutil.copy(_temporary_save_file(), game.savepath)
+            return True
+        except Exception:
+            logging.exception("Could not save game")
+            return False
 
 
 def autosave(game: Game) -> bool:

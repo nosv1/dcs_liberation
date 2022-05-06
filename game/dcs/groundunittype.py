@@ -1,64 +1,79 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Type, Optional, ClassVar, Iterator
+from typing import Any, Optional, Type, Iterator
 
 import yaml
 from dcs.unittype import VehicleType
 from dcs.vehicles import vehicle_map
 
-from game.data.groundunitclass import GroundUnitClass
+from game.data.units import UnitClass
 from game.dcs.unittype import UnitType
+
+
+@dataclass
+class SkynetProperties:
+    can_engage_harm: Optional[str] = None
+    can_engage_air_weapon: Optional[str] = None
+    go_live_range_in_percent: Optional[str] = None
+    engagement_zone: Optional[str] = None
+    autonomous_behaviour: Optional[str] = None
+    harm_detection_chance: Optional[str] = None
+
+    @classmethod
+    def from_data(cls, data: dict[str, Any]) -> SkynetProperties:
+        props = SkynetProperties()
+        if "can_engage_harm" in data:
+            props.can_engage_harm = str(data["can_engage_harm"]).lower()
+        if "can_engage_air_weapon" in data:
+            props.can_engage_air_weapon = str(data["can_engage_air_weapon"]).lower()
+        if "go_live_range_in_percent" in data:
+            props.go_live_range_in_percent = str(data["go_live_range_in_percent"])
+        if "engagement_zone" in data:
+            props.engagement_zone = str(data["engagement_zone"])
+        if "autonomous_behaviour" in data:
+            props.autonomous_behaviour = str(data["autonomous_behaviour"])
+        if "harm_detection_chance" in data:
+            props.harm_detection_chance = str(data["harm_detection_chance"])
+        return props
+
+    def to_dict(self) -> dict[str, str]:
+        properties: dict[str, str] = {}
+        for key, value in self.__dict__.items():
+            if value is not None:
+                properties[key] = value
+        return properties
+
+    def __hash__(self) -> int:
+        return hash(id(self))
 
 
 @dataclass(frozen=True)
 class GroundUnitType(UnitType[Type[VehicleType]]):
-    unit_class: Optional[GroundUnitClass]
     spawn_weight: int
-
-    _by_name: ClassVar[dict[str, GroundUnitType]] = {}
-    _by_unit_type: ClassVar[
-        dict[Type[VehicleType], list[GroundUnitType]]
-    ] = defaultdict(list)
-    _loaded: ClassVar[bool] = False
-
-    def __str__(self) -> str:
-        return self.name
-
-    @property
-    def dcs_id(self) -> str:
-        return self.dcs_unit_type.id
-
-    @classmethod
-    def register(cls, aircraft_type: GroundUnitType) -> None:
-        cls._by_name[aircraft_type.name] = aircraft_type
-        cls._by_unit_type[aircraft_type.dcs_unit_type].append(aircraft_type)
+    skynet_properties: SkynetProperties
 
     @classmethod
     def named(cls, name: str) -> GroundUnitType:
         if not cls._loaded:
             cls._load_all()
-        return cls._by_name[name]
+        unit = cls._by_name[name]
+        assert isinstance(unit, GroundUnitType)
+        return unit
 
     @classmethod
     def for_dcs_type(cls, dcs_unit_type: Type[VehicleType]) -> Iterator[GroundUnitType]:
         if not cls._loaded:
             cls._load_all()
-        yield from cls._by_unit_type[dcs_unit_type]
+        for unit in cls._by_unit_type[dcs_unit_type]:
+            assert isinstance(unit, GroundUnitType)
+            yield unit
 
     @staticmethod
     def _each_unit_type() -> Iterator[Type[VehicleType]]:
         yield from vehicle_map.values()
-
-    @classmethod
-    def _load_all(cls) -> None:
-        for unit_type in cls._each_unit_type():
-            for data in cls._each_variant_of(unit_type):
-                cls.register(data)
-        cls._loaded = True
 
     @classmethod
     def _each_variant_of(cls, vehicle: Type[VehicleType]) -> Iterator[GroundUnitType]:
@@ -78,9 +93,11 @@ class GroundUnitType(UnitType[Type[VehicleType]]):
             introduction = "No data."
 
         class_name = data.get("class")
-        unit_class: Optional[GroundUnitClass] = None
-        if class_name is not None:
-            unit_class = GroundUnitClass(class_name)
+        if class_name is None:
+            logging.warning(f"{vehicle.id} has no class")
+            unit_class = UnitClass.UNKNOWN
+        else:
+            unit_class = UnitClass(class_name)
 
         for variant in data.get("variants", [vehicle.id]):
             yield GroundUnitType(
@@ -97,4 +114,7 @@ class GroundUnitType(UnitType[Type[VehicleType]]):
                 manufacturer=data.get("manufacturer", "No data."),
                 role=data.get("role", "No data."),
                 price=data.get("price", 1),
+                skynet_properties=SkynetProperties.from_data(
+                    data.get("skynet_properties", {})
+                ),
             )

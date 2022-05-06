@@ -1,15 +1,15 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from game.data.groundunitclass import GroundUnitClass
+from game.data.units import UnitClass
 from game.utils import Distance, feet, nautical_miles
 
 
 @dataclass
 class GroundUnitProcurementRatios:
-    ratios: dict[GroundUnitClass, float]
+    ratios: dict[UnitClass, float]
 
-    def for_unit_class(self, unit_class: GroundUnitClass) -> float:
+    def for_unit_class(self, unit_class: UnitClass) -> float:
         try:
             return self.ratios[unit_class] / sum(self.ratios.values())
         except KeyError:
@@ -104,13 +104,13 @@ MODERN_DOCTRINE = Doctrine(
     sweep_distance=nautical_miles(60),
     ground_unit_procurement_ratios=GroundUnitProcurementRatios(
         {
-            GroundUnitClass.Tank: 3,
-            GroundUnitClass.Atgm: 2,
-            GroundUnitClass.Apc: 2,
-            GroundUnitClass.Ifv: 3,
-            GroundUnitClass.Artillery: 1,
-            GroundUnitClass.Shorads: 2,
-            GroundUnitClass.Recon: 1,
+            UnitClass.TANK: 3,
+            UnitClass.ATGM: 2,
+            UnitClass.APC: 2,
+            UnitClass.IFV: 3,
+            UnitClass.ARTILLERY: 1,
+            UnitClass.SHORAD: 2,
+            UnitClass.RECON: 1,
         }
     ),
 )
@@ -141,13 +141,13 @@ COLDWAR_DOCTRINE = Doctrine(
     sweep_distance=nautical_miles(40),
     ground_unit_procurement_ratios=GroundUnitProcurementRatios(
         {
-            GroundUnitClass.Tank: 4,
-            GroundUnitClass.Atgm: 2,
-            GroundUnitClass.Apc: 3,
-            GroundUnitClass.Ifv: 2,
-            GroundUnitClass.Artillery: 1,
-            GroundUnitClass.Shorads: 2,
-            GroundUnitClass.Recon: 1,
+            UnitClass.TANK: 4,
+            UnitClass.ATGM: 2,
+            UnitClass.APC: 3,
+            UnitClass.IFV: 2,
+            UnitClass.ARTILLERY: 1,
+            UnitClass.SHORAD: 2,
+            UnitClass.RECON: 1,
         }
     ),
 )
@@ -178,12 +178,12 @@ WWII_DOCTRINE = Doctrine(
     sweep_distance=nautical_miles(10),
     ground_unit_procurement_ratios=GroundUnitProcurementRatios(
         {
-            GroundUnitClass.Tank: 3,
-            GroundUnitClass.Atgm: 3,
-            GroundUnitClass.Apc: 3,
-            GroundUnitClass.Artillery: 1,
-            GroundUnitClass.Shorads: 3,
-            GroundUnitClass.Recon: 1,
+            UnitClass.TANK: 3,
+            UnitClass.ATGM: 3,
+            UnitClass.APC: 3,
+            UnitClass.ARTILLERY: 1,
+            UnitClass.SHORAD: 3,
+            UnitClass.RECON: 1,
         }
     ),
 )

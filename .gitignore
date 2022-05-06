@@ -3,12 +3,9 @@ __pycache__
 build/**
 resources/payloads/*.lua
 venv
-logs.txt
 .DS_Store
 .vscode/settings.json
 dist/**
-a.py
-resources/tools/a.miz
 # User-specific stuff
 .idea/
 .env
@@ -17,9 +14,9 @@ env/
 /kneeboards
 /liberation_preferences.json
 /state.json
+/serverconfig.env
 
 /logs/
-
-qt_ui/logs/liberation.log
+/resources/logging.yaml
 
 *.psd

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING, Union
+from typing import Any, Optional, TYPE_CHECKING, Union
 
-from gen.flights.flight import FlightType
+from game.ato.flighttype import FlightType
 from game.theater.controlpoint import ControlPoint
 
 if TYPE_CHECKING:
@@ -17,6 +16,10 @@ class SquadronConfig:
     primary: FlightType
     secondary: list[FlightType]
     aircraft: list[str]
+
+    name: Optional[str]
+    nickname: Optional[str]
+    female_pilot_percentage: Optional[int]
 
     @property
     def auto_assignable(self) -> set[FlightType]:
@@ -33,7 +36,12 @@ class SquadronConfig:
             secondary = [FlightType(s) for s in secondary_raw]
 
         return SquadronConfig(
-            FlightType(data["primary"]), secondary, data.get("aircraft", [])
+            FlightType(data["primary"]),
+            secondary,
+            data.get("aircraft", []),
+            data.get("name", None),
+            data.get("nickname", None),
+            data.get("female_pilot_percentage", None),
         )
 
     @staticmethod
@@ -58,7 +66,7 @@ class CampaignAirWingConfig:
         by_location: dict[ControlPoint, list[SquadronConfig]] = defaultdict(list)
         for base_id, squadron_configs in data.items():
             if isinstance(base_id, int):
-                base = theater.find_control_point_by_id(base_id)
+                base = theater.find_control_point_by_airport_id(base_id)
             else:
                 base = theater.control_point_named(base_id)
 

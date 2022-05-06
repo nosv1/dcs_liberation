@@ -10,17 +10,20 @@ from typing import Optional
 from PySide2 import QtWidgets
 from PySide2.QtCore import Qt
 from PySide2.QtGui import QPixmap
-from PySide2.QtWidgets import QApplication, QSplashScreen, QCheckBox
+from PySide2.QtWidgets import QApplication, QCheckBox, QSplashScreen
 from dcs.payloads import PayloadDirectories
 
 from game import Game, VERSION, persistency
-from game.campaignloader.campaign import Campaign
-from game.data.weapons import WeaponGroup, Pylon, Weapon
-from game.db import FACTIONS
+from game.campaignloader.campaign import Campaign, DEFAULT_BUDGET
+from game.data.weapons import Pylon, Weapon, WeaponGroup
 from game.dcs.aircrafttype import AircraftType
+from game.factions import FACTIONS
 from game.profiling import logged_duration
+from game.server import EventStream, Server
 from game.settings import Settings
+from game.sim import GameUpdateEvents
 from game.theater.start_generator import GameGenerator, GeneratorSettings, ModSettings
+from pydcs_extensions import load_mods
 from qt_ui import (
     liberation_install,
     liberation_theme,
@@ -29,7 +32,6 @@ from qt_ui import (
 )
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.QLiberationWindow import QLiberationWindow
-from qt_ui.windows.newgame.QNewGameWizard import DEFAULT_BUDGET
 from qt_ui.windows.preferences.QLiberationFirstStartWindow import (
     QLiberationFirstStartWindow,
 )
@@ -56,11 +58,17 @@ def inject_custom_payloads(user_path: Path) -> None:
     PayloadDirectories.set_preferred(user_path / "MissionEditor" / "UnitPayloads")
 
 
-def run_ui(game: Optional[Game]) -> None:
+def on_game_load(game: Game | None) -> None:
+    EventStream.drain()
+    EventStream.put_nowait(GameUpdateEvents().game_loaded(game))
+
+
+def run_ui(game: Game | None, dev: bool) -> None:
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"  # Potential fix for 4K screens
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
+
     app = QApplication(sys.argv)
 
     app.setAttribute(Qt.AA_DisableWindowContextHelpButton)
@@ -95,8 +103,10 @@ def run_ui(game: Optional[Game]) -> None:
     splash = QSplashScreen(pixmap)
     splash.show()
 
-    # Give enough time to read splash screen
-    time.sleep(3)
+    # Developers are launching the game in a loop hundreds of times. We've read it.
+    if not dev:
+        # Give enough time to read splash screen
+        time.sleep(3)
 
     # Once splash screen is up : load resources & setup stuff
     uiconstants.load_icons()
@@ -135,19 +145,19 @@ def run_ui(game: Optional[Game]) -> None:
     try:
         liberation_install.replace_mission_scripting_file()
     except:
-        pass
-        # error_dialog = QtWidgets.QErrorMessage()
-        # error_dialog.setWindowTitle("Wrong DCS installation directory.")
-        # error_dialog.showMessage(
-        #     "Unable to modify Mission Scripting file. Possible issues with rights. Try running as admin, or please perform the modification of the MissionScripting file manually."
-        # )
-        # error_dialog.exec_()
+        error_dialog = QtWidgets.QErrorMessage()
+        error_dialog.setWindowTitle("Wrong DCS installation directory.")
+        error_dialog.showMessage(
+            "Unable to modify Mission Scripting file. Possible issues with rights. Try running as admin, or please perform the modification of the MissionScripting file manually."
+        )
+        error_dialog.exec_()
 
     # Apply CSS (need works)
     GameUpdateSignal()
+    GameUpdateSignal.get_instance().game_loaded.connect(on_game_load)
 
     # Start window
-    window = QLiberationWindow(game)
+    window = QLiberationWindow(game, dev)
     window.showMaximized()
     splash.finish(window)
     qt_execution_code = app.exec_()
@@ -174,6 +184,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Emits a warning for weapons without date or fallback information.",
     )
+
+    parser.add_argument("--dev", action="store_true", help="Enable development mode.")
 
     parser.add_argument("--new-map", help="Deprecated. Does nothing.")
     parser.add_argument("--old-map", help="Deprecated. Does nothing.")
@@ -272,6 +284,7 @@ def create_game(
             player_budget=DEFAULT_BUDGET,
             enemy_budget=DEFAULT_BUDGET,
             inverted=inverted,
+            advanced_iads=theater.iads_network.advanced_iads,
             no_carrier=False,
             no_lha=False,
             no_player_navy=False,
@@ -331,6 +344,8 @@ def main():
     if args.warn_missing_weapon_data:
         lint_all_weapon_data()
 
+    load_mods()
+
     if args.subcommand == "new-game":
         with logged_duration("New game creation"):
             game = create_game(
@@ -348,7 +363,8 @@ def main():
         lint_weapon_data_for_aircraft(AircraftType.named(args.aircraft))
         return
 
-    run_ui(game)
+    with Server().run_in_thread():
+        run_ui(game, args.dev)
 
 
 if __name__ == "__main__":

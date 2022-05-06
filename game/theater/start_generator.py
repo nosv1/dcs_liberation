@@ -1,45 +1,25 @@
 from __future__ import annotations
 
 import logging
-import pickle
 import random
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Set
+from typing import List
 
-from dcs.mapping import Point
+import dcs.statics
 
 from game import Game
 from game.factions.faction import Faction
+from game.naming import namegen
 from game.scenery_group import SceneryGroup
-from game.theater import PointWithHeading
+from game.theater import PointWithHeading, PresetLocation
 from game.theater.theatergroundobject import (
     BuildingGroundObject,
-    CarrierGroundObject,
-    EwrGroundObject,
-    FactoryGroundObject,
-    LhaGroundObject,
-    MissileSiteGroundObject,
-    SamGroundObject,
-    ShipGroundObject,
-    SceneryGroundObject,
-    VehicleGroupGroundObject,
-    CoastalSiteGroundObject,
+    IadsBuildingGroundObject,
 )
-from game.utils import Heading
+from .theatergroup import SceneryUnit, TheaterGroup, IadsGroundGroup, IadsRole
+from game.utils import Heading, escape_string_for_lua
 from game.version import VERSION
-from gen.coastal.coastal_group_generator import generate_coastal_group
-from gen.defenses.armor_group_generator import generate_armor_group
-from gen.fleet.ship_group_generator import (
-    generate_carrier_group,
-    generate_lha_group,
-    generate_ship_group,
-)
-from gen.missiles.missiles_group_generator import generate_missile_group
-from gen.naming import namegen
-from gen.sam.airdefensegroupgenerator import AirDefenseRange
-from gen.sam.ewr_group_generator import generate_ewr_group
-from gen.sam.sam_group_generator import generate_anti_air_group
 from . import (
     ConflictTheater,
     ControlPoint,
@@ -48,10 +28,15 @@ from . import (
     OffMapSpawn,
 )
 from ..campaignloader.campaignairwingconfig import CampaignAirWingConfig
+from ..data.building_data import IADS_BUILDINGS
+from ..data.groups import GroupTask
+from ..armedforces.forcegroup import ForceGroup
+from ..armedforces.armedforces import ArmedForces
+from ..armedforces.forcegroup import ForceGroup
+from ..campaignloader.campaignairwingconfig import CampaignAirWingConfig
+from ..data.groups import GroupTask
 from ..profiling import logged_duration
 from ..settings import Settings
-
-GroundObjectTemplates = Dict[str, Dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -60,6 +45,7 @@ class GeneratorSettings:
     player_budget: int
     enemy_budget: int
     inverted: bool
+    advanced_iads: bool
     no_carrier: bool
     no_lha: bool
     no_player_navy: bool
@@ -90,12 +76,14 @@ class GameGenerator:
         generator_settings: GeneratorSettings,
         mod_settings: ModSettings,
     ) -> None:
-        self.player = player.apply_mod_settings(mod_settings)
-        self.enemy = enemy.apply_mod_settings(mod_settings)
+        self.player = player
+        self.enemy = enemy
         self.theater = theater
         self.air_wing_config = air_wing_config
         self.settings = settings
         self.generator_settings = generator_settings
+        self.player.apply_mod_settings(mod_settings)
+        self.enemy.apply_mod_settings(mod_settings)
 
     def generate(self) -> Game:
         with logged_duration("TGO population"):
@@ -162,38 +150,39 @@ class ControlPointGroundObjectGenerator:
     def faction(self) -> Faction:
         return self.game.coalition_for(self.control_point.captured).faction
 
+    @property
+    def armed_forces(self) -> ArmedForces:
+        return self.game.coalition_for(self.control_point.captured).armed_forces
+
     def generate(self) -> bool:
         self.control_point.connected_objectives = []
-        if self.faction.navy_generators:
-            # Even airbases can generate navies if they are close enough to the water.
-            self.generate_navy()
-
+        self.generate_navy()
         return True
+
+    def generate_ground_object_from_group(
+        self, unit_group: ForceGroup, location: PresetLocation
+    ) -> None:
+        ground_object = unit_group.generate(
+            namegen.random_objective_name(),
+            location,
+            self.control_point,
+            self.game,
+        )
+        self.control_point.connected_objectives.append(ground_object)
 
     def generate_navy(self) -> None:
         skip_player_navy = self.generator_settings.no_player_navy
         if self.control_point.captured and skip_player_navy:
             return
-
         skip_enemy_navy = self.generator_settings.no_enemy_navy
         if not self.control_point.captured and skip_enemy_navy:
             return
-
         for position in self.control_point.preset_locations.ships:
-            self.generate_ship_at(position)
-
-    def generate_ship_at(self, position: PointWithHeading) -> None:
-        group_id = self.game.next_group_id()
-
-        g = ShipGroundObject(
-            namegen.random_objective_name(), group_id, position, self.control_point
-        )
-
-        group = generate_ship_group(self.game, g, self.faction_name)
-        g.groups = []
-        if group is not None:
-            g.groups.append(group)
-            self.control_point.connected_objectives.append(g)
+            unit_group = self.armed_forces.random_group_for_task(GroupTask.NAVY)
+            if not unit_group:
+                logging.warning(f"{self.faction_name} has no ForceGroup for Navy")
+                return
+            self.generate_ground_object_from_group(unit_group, position)
 
 
 class NoOpGroundObjectGenerator(ControlPointGroundObjectGenerator):
@@ -214,16 +203,18 @@ class CarrierGroundObjectGenerator(ControlPointGroundObjectGenerator):
             )
             return False
 
-        # Create ground object group
-        group_id = self.game.next_group_id()
-        g = CarrierGroundObject(
-            namegen.random_objective_name(), group_id, self.control_point
+        unit_group = self.armed_forces.random_group_for_task(GroupTask.AIRCRAFT_CARRIER)
+        if not unit_group:
+            logging.error(f"{self.faction_name} has no access to AircraftCarrier")
+            return False
+        self.generate_ground_object_from_group(
+            unit_group,
+            PresetLocation(
+                self.control_point.name,
+                self.control_point.position,
+                self.control_point.heading,
+            ),
         )
-        group = generate_carrier_group(self.faction_name, self.game, g)
-        g.groups = []
-        if group is not None:
-            g.groups.append(group)
-        self.control_point.connected_objectives.append(g)
         self.control_point.name = random.choice(carrier_names)
         return True
 
@@ -241,16 +232,20 @@ class LhaGroundObjectGenerator(ControlPointGroundObjectGenerator):
             )
             return False
 
-        # Create ground object group
-        group_id = self.game.next_group_id()
-        g = LhaGroundObject(
-            namegen.random_objective_name(), group_id, self.control_point
+        unit_group = self.armed_forces.random_group_for_task(
+            GroupTask.HELICOPTER_CARRIER
         )
-        group = generate_lha_group(self.faction_name, self.game, g)
-        g.groups = []
-        if group is not None:
-            g.groups.append(group)
-        self.control_point.connected_objectives.append(g)
+        if not unit_group:
+            logging.error(f"{self.faction_name} has no access to HelicopterCarrier")
+            return False
+        self.generate_ground_object_from_group(
+            unit_group,
+            PresetLocation(
+                self.control_point.name,
+                self.control_point.position,
+                self.control_point.heading,
+            ),
+        )
         self.control_point.name = random.choice(lha_names)
         return True
 
@@ -261,10 +256,8 @@ class AirbaseGroundObjectGenerator(ControlPointGroundObjectGenerator):
         game: Game,
         generator_settings: GeneratorSettings,
         control_point: ControlPoint,
-        templates: GroundObjectTemplates,
     ) -> None:
         super().__init__(game, generator_settings, control_point)
-        self.templates = templates
 
     def generate(self) -> bool:
         if not super().generate():
@@ -276,171 +269,94 @@ class AirbaseGroundObjectGenerator(ControlPointGroundObjectGenerator):
     def generate_ground_points(self) -> None:
         """Generate ground objects and AA sites for the control point."""
         self.generate_armor_groups()
-        self.generate_aa()
-        self.generate_ewrs()
+        self.generate_iads()
         self.generate_scenery_sites()
         self.generate_strike_targets()
         self.generate_offshore_strike_targets()
         self.generate_factories()
         self.generate_ammunition_depots()
-
-        if self.faction.missiles:
-            self.generate_missile_sites()
-
-        if self.faction.coastal_defenses:
-            self.generate_coastal_sites()
+        self.generate_missile_sites()
+        self.generate_coastal_sites()
 
     def generate_armor_groups(self) -> None:
         for position in self.control_point.preset_locations.armor_groups:
-            self.generate_armor_at(position)
-
-    def generate_armor_at(self, position: PointWithHeading) -> None:
-        group_id = self.game.next_group_id()
-
-        g = VehicleGroupGroundObject(
-            namegen.random_objective_name(),
-            group_id,
-            position,
-            self.control_point,
-        )
-
-        group = generate_armor_group(self.faction_name, self.game, g)
-        if group is None:
-            logging.error(
-                "Could not generate armor group for %s at %s",
-                g.name,
-                self.control_point,
-            )
-            return
-        g.groups = [group]
-        self.control_point.connected_objectives.append(g)
+            unit_group = self.armed_forces.random_group_for_task(GroupTask.BASE_DEFENSE)
+            if not unit_group:
+                logging.error(f"{self.faction_name} has no ForceGroup for Armor")
+                return
+            self.generate_ground_object_from_group(unit_group, position)
 
     def generate_aa(self) -> None:
         presets = self.control_point.preset_locations
-        for position in presets.long_range_sams:
-            self.generate_aa_at(
-                position,
-                ranges=[
-                    {AirDefenseRange.Long},
-                    {AirDefenseRange.Medium},
-                    {AirDefenseRange.Short},
-                    {AirDefenseRange.AAA},
-                ],
-            )
-        for position in presets.medium_range_sams:
-            self.generate_aa_at(
-                position,
-                ranges=[
-                    {AirDefenseRange.Medium},
-                    {AirDefenseRange.Short},
-                    {AirDefenseRange.AAA},
-                ],
-            )
-        for position in presets.short_range_sams:
-            self.generate_aa_at(
-                position,
-                ranges=[{AirDefenseRange.Short}, {AirDefenseRange.AAA}],
-            )
+        aa_tasking = [GroupTask.AAA]
         for position in presets.aaa:
-            self.generate_aa_at(
-                position,
-                ranges=[{AirDefenseRange.AAA}],
-            )
+            self.generate_aa_at(position, aa_tasking)
+        aa_tasking.insert(0, GroupTask.SHORAD)
+        for position in presets.short_range_sams:
+            self.generate_aa_at(position, aa_tasking)
+        aa_tasking.insert(0, GroupTask.MERAD)
+        for position in presets.medium_range_sams:
+            self.generate_aa_at(position, aa_tasking)
+        aa_tasking.insert(0, GroupTask.LORAD)
+        for position in presets.long_range_sams:
+            self.generate_aa_at(position, aa_tasking)
 
     def generate_ewrs(self) -> None:
-        presets = self.control_point.preset_locations
-        for position in presets.ewrs:
-            self.generate_ewr_at(position)
-
-    def generate_strike_target_at(self, category: str, position: Point) -> None:
-
-        obj_name = namegen.random_objective_name()
-        template = random.choice(list(self.templates[category].values()))
-
-        object_id = 0
-        group_id = self.game.next_group_id()
-
-        # TODO: Create only one TGO per objective, each with multiple units.
-        for unit in template:
-            object_id += 1
-
-            template_point = Point(unit["offset"].x, unit["offset"].y)
-            g = BuildingGroundObject(
-                obj_name,
-                category,
-                group_id,
-                object_id,
-                position + template_point,
-                Heading.from_degrees(unit["heading"]),
-                self.control_point,
-                unit["type"],
+        for position in self.control_point.preset_locations.ewrs:
+            unit_group = self.armed_forces.random_group_for_task(
+                GroupTask.EARLY_WARNING_RADAR
             )
+            if not unit_group:
+                logging.error(f"{self.faction_name} has no ForceGroup for EWR")
+                return
+            self.generate_ground_object_from_group(unit_group, position)
 
-            self.control_point.connected_objectives.append(g)
+    def generate_building_at(
+        self,
+        group_task: GroupTask,
+        location: PresetLocation,
+    ) -> None:
+        # GroupTask is the type of the building to be generated
+        unit_group = self.armed_forces.random_group_for_task(group_task)
+        if not unit_group:
+            raise RuntimeError(
+                f"{self.faction_name} has no access to Building {group_task.description}"
+            )
+        self.generate_ground_object_from_group(unit_group, location)
 
     def generate_ammunition_depots(self) -> None:
         for position in self.control_point.preset_locations.ammunition_depots:
-            self.generate_strike_target_at(category="ammo", position=position)
+            self.generate_building_at(GroupTask.AMMO, position)
 
     def generate_factories(self) -> None:
         for position in self.control_point.preset_locations.factories:
-            self.generate_factory_at(position)
+            self.generate_building_at(GroupTask.FACTORY, position)
 
-    def generate_factory_at(self, point: PointWithHeading) -> None:
-        obj_name = namegen.random_objective_name()
-        group_id = self.game.next_group_id()
+    def generate_aa_at(self, location: PresetLocation, tasks: list[GroupTask]) -> None:
+        for task in tasks:
+            unit_group = self.armed_forces.random_group_for_task(task)
+            if unit_group:
+                # Only take next (smaller) aa_range when no template available for the
+                # most requested range. Otherwise break the loop and continue
+                self.generate_ground_object_from_group(unit_group, location)
+                return
 
-        g = FactoryGroundObject(
-            obj_name,
-            group_id,
-            point,
-            point.heading,
-            self.control_point,
+        logging.error(
+            f"{self.faction_name} has no access to SAM {', '.join([task.description for task in tasks])}"
         )
 
-        self.control_point.connected_objectives.append(g)
-
-    def generate_aa_at(
-        self, position: Point, ranges: Iterable[Set[AirDefenseRange]]
-    ) -> None:
-        group_id = self.game.next_group_id()
-
-        g = SamGroundObject(
-            namegen.random_objective_name(),
-            group_id,
-            position,
-            self.control_point,
-        )
-        groups = generate_anti_air_group(self.game, g, self.faction, ranges)
-        if not groups:
-            logging.error(
-                "Could not generate air defense group for %s at %s",
-                g.name,
-                self.control_point,
-            )
-            return
-        g.groups = groups
-        self.control_point.connected_objectives.append(g)
-
-    def generate_ewr_at(self, position: PointWithHeading) -> None:
-        group_id = self.game.next_group_id()
-
-        g = EwrGroundObject(
-            namegen.random_objective_name(),
-            group_id,
-            position,
-            self.control_point,
-        )
-        group = generate_ewr_group(self.game, g, self.faction)
-        if group is None:
-            logging.error(
-                "Could not generate ewr group for %s at %s",
-                g.name,
-                self.control_point,
-            )
-            return
-        g.groups = [group]
-        self.control_point.connected_objectives.append(g)
+    def generate_iads(self) -> None:
+        # AntiAir
+        self.generate_aa()
+        # EWR
+        self.generate_ewrs()
+        # IADS Buildings
+        for iads_element in self.control_point.preset_locations.iads_command_center:
+            self.generate_building_at(GroupTask.COMMAND_CENTER, iads_element)
+        for iads_element in self.control_point.preset_locations.iads_connection_node:
+            self.generate_building_at(GroupTask.COMMS, iads_element)
+        for iads_element in self.control_point.preset_locations.iads_power_source:
+            self.generate_building_at(GroupTask.POWER, iads_element)
 
     def generate_scenery_sites(self) -> None:
         presets = self.control_point.preset_locations
@@ -448,143 +364,91 @@ class AirbaseGroundObjectGenerator(ControlPointGroundObjectGenerator):
             self.generate_tgo_for_scenery(scenery_group)
 
     def generate_tgo_for_scenery(self, scenery: SceneryGroup) -> None:
+        # Special Handling for scenery Objects based on trigger zones
+        iads_role = IadsRole.for_category(scenery.category)
+        tgo_type = (
+            IadsBuildingGroundObject if iads_role.participate else BuildingGroundObject
+        )
+        g = tgo_type(
+            namegen.random_objective_name(),
+            scenery.category,
+            PresetLocation(scenery.zone_def.name, scenery.position),
+            self.control_point,
+        )
+        ground_group = TheaterGroup(
+            self.game.next_group_id(),
+            scenery.zone_def.name,
+            PointWithHeading.from_point(scenery.position, Heading.from_degrees(0)),
+            [],
+            g,
+        )
+        if iads_role.participate:
+            ground_group = IadsGroundGroup.from_group(ground_group)
+            ground_group.iads_role = iads_role
 
-        obj_name = namegen.random_objective_name()
-        category = scenery.category
-        group_id = self.game.next_group_id()
-        object_id = 0
-
+        g.groups.append(ground_group)
         # Each nested trigger zone is a target/building/unit for an objective.
         for zone in scenery.zones:
-
-            object_id += 1
-            local_position = zone.position
-            local_dcs_identifier = zone.name
-
-            g = SceneryGroundObject(
-                obj_name,
-                category,
-                group_id,
-                object_id,
-                local_position,
-                self.control_point,
-                local_dcs_identifier,
-                zone,
+            zone.name = escape_string_for_lua(zone.name)
+            scenery_unit = SceneryUnit(
+                zone.id,
+                zone.name,
+                dcs.statics.Fortification.White_Flag,
+                PointWithHeading.from_point(zone.position, Heading.from_degrees(0)),
+                g,
             )
+            scenery_unit.zone = zone
+            ground_group.units.append(scenery_unit)
 
-            self.control_point.connected_objectives.append(g)
-
-        return
+        self.control_point.connected_objectives.append(g)
 
     def generate_missile_sites(self) -> None:
         for position in self.control_point.preset_locations.missile_sites:
-            self.generate_missile_site_at(position)
-
-    def generate_missile_site_at(self, position: PointWithHeading) -> None:
-        group_id = self.game.next_group_id()
-
-        g = MissileSiteGroundObject(
-            namegen.random_objective_name(), group_id, position, self.control_point
-        )
-        group = generate_missile_group(self.game, g, self.faction_name)
-        g.groups = []
-        if group is not None:
-            g.groups.append(group)
-            self.control_point.connected_objectives.append(g)
-        return
+            unit_group = self.armed_forces.random_group_for_task(GroupTask.MISSILE)
+            if not unit_group:
+                logging.warning(f"{self.faction_name} has no ForceGroup for Missile")
+                return
+            self.generate_ground_object_from_group(unit_group, position)
 
     def generate_coastal_sites(self) -> None:
         for position in self.control_point.preset_locations.coastal_defenses:
-            self.generate_coastal_site_at(position)
-
-    def generate_coastal_site_at(self, position: PointWithHeading) -> None:
-        group_id = self.game.next_group_id()
-
-        g = CoastalSiteGroundObject(
-            namegen.random_objective_name(),
-            group_id,
-            position,
-            self.control_point,
-            position.heading,
-        )
-        group = generate_coastal_group(self.game, g, self.faction_name)
-        g.groups = []
-        if group is not None:
-            g.groups.append(group)
-            self.control_point.connected_objectives.append(g)
-        return
+            unit_group = self.armed_forces.random_group_for_task(GroupTask.COASTAL)
+            if not unit_group:
+                logging.warning(f"{self.faction_name} has no ForceGroup for Coastal")
+                return
+            self.generate_ground_object_from_group(unit_group, position)
 
     def generate_strike_targets(self) -> None:
-        building_set = list(set(self.faction.building_set) - {"oil"})
-        if not building_set:
-            logging.error("Faction has no buildings defined")
-            return
         for position in self.control_point.preset_locations.strike_locations:
-            category = random.choice(building_set)
-            self.generate_strike_target_at(category, position)
+            self.generate_building_at(GroupTask.STRIKE_TARGET, position)
 
     def generate_offshore_strike_targets(self) -> None:
-        if "oil" not in self.faction.building_set:
-            logging.error("Faction does not support offshore strike targets")
-            return
         for position in self.control_point.preset_locations.offshore_strike_locations:
-            self.generate_strike_target_at("oil", position)
+            self.generate_building_at(GroupTask.OIL, position)
 
 
 class FobGroundObjectGenerator(AirbaseGroundObjectGenerator):
     def generate(self) -> bool:
-        self.generate_fob()
-        self.generate_armor_groups()
-        self.generate_factories()
-        self.generate_ammunition_depots()
-        self.generate_aa()
-        self.generate_ewrs()
-        self.generate_scenery_sites()
-        self.generate_strike_targets()
-        self.generate_offshore_strike_targets()
-
-        if self.faction.missiles:
-            self.generate_missile_sites()
-
-        if self.faction.coastal_defenses:
-            self.generate_coastal_sites()
-
-        return True
+        if super(FobGroundObjectGenerator, self).generate():
+            self.generate_fob()
+            return True
+        return False
 
     def generate_fob(self) -> None:
-        category = "fob"
-        obj_name = self.control_point.name
-        template = random.choice(list(self.templates[category].values()))
-        point = self.control_point.position
-        # Pick from preset locations
-        object_id = 0
-        group_id = self.game.next_group_id()
-
-        # TODO: Create only one TGO per objective, each with multiple units.
-        for unit in template:
-            object_id += 1
-
-            template_point = Point(unit["offset"].x, unit["offset"].y)
-            g = BuildingGroundObject(
-                obj_name,
-                category,
-                group_id,
-                object_id,
-                point + template_point,
-                Heading.from_degrees(unit["heading"]),
-                self.control_point,
-                unit["type"],
-                is_fob_structure=True,
-            )
-            self.control_point.connected_objectives.append(g)
+        self.generate_building_at(
+            GroupTask.FOB,
+            PresetLocation(
+                self.control_point.name,
+                self.control_point.position,
+                self.control_point.heading,
+            ),
+        )
 
 
 class GroundObjectGenerator:
     def __init__(self, game: Game, generator_settings: GeneratorSettings) -> None:
         self.game = game
         self.generator_settings = generator_settings
-        with open("resources/groundobject_templates.p", "rb") as f:
-            self.templates: GroundObjectTemplates = pickle.load(f)
 
     def generate(self) -> None:
         # Copied so we can remove items from the original list without breaking
@@ -610,10 +474,10 @@ class GroundObjectGenerator:
             )
         elif isinstance(control_point, Fob):
             generator = FobGroundObjectGenerator(
-                self.game, self.generator_settings, control_point, self.templates
+                self.game, self.generator_settings, control_point
             )
         else:
             generator = AirbaseGroundObjectGenerator(
-                self.game, self.generator_settings, control_point, self.templates
+                self.game, self.generator_settings, control_point
             )
         return generator.generate()

@@ -14,10 +14,12 @@ from PySide2.QtWidgets import (
 from dcs.unittype import FlyingType
 
 from game import Game
+from game.ato.starttype import StartType
 from game.squadrons.squadron import Squadron
 from game.theater import ControlPoint, OffMapSpawn
-from gen.ato import Package
-from gen.flights.flight import Flight, FlightRoster
+from game.ato.package import Package
+from game.ato.flightroster import FlightRoster
+from game.ato.flight import Flight
 from qt_ui.uiconstants import EVENT_ICONS
 from qt_ui.widgets.QFlightSizeSpinner import QFlightSizeSpinner
 from qt_ui.widgets.QLabeledWidget import QLabeledWidget
@@ -100,8 +102,9 @@ class QFlightCreator(QDialog):
         # we restore the previous choice.
         self.restore_start_type: Optional[str] = None
         self.start_type = QComboBox()
-        self.start_type.addItems(["Cold", "Warm", "Runway", "In Flight"])
-        self.start_type.setCurrentText(self.game.settings.default_start_type)
+        for start_type in StartType:
+            self.start_type.addItem(start_type.value, start_type)
+        self.start_type.setCurrentText(self.game.settings.default_start_type.value)
         layout.addLayout(
             QLabeledWidget(
                 "Start type:",
@@ -180,7 +183,7 @@ class QFlightCreator(QDialog):
             # the roster is passed explicitly. Needs a refactor.
             roster.max_size,
             task,
-            self.start_type.currentText(),
+            self.start_type.currentData(),
             divert,
             custom_name=self.custom_name_text,
             roster=roster,
@@ -199,10 +202,10 @@ class QFlightCreator(QDialog):
 
     def on_departure_changed(self, departure: ControlPoint) -> None:
         if isinstance(departure, OffMapSpawn):
-            previous_type = self.start_type.currentText()
-            if previous_type != "In Flight":
+            previous_type = self.start_type.currentData()
+            if previous_type != StartType.IN_FLIGHT:
                 self.restore_start_type = previous_type
-            self.start_type.setCurrentText("In Flight")
+            self.start_type.setCurrentText(StartType.IN_FLIGHT.value)
             self.start_type.setEnabled(False)
         else:
             self.start_type.setEnabled(True)

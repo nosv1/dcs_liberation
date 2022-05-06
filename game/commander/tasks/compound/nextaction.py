@@ -1,5 +1,4 @@
-import logging
-from collections import Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from game.commander.tasks.compound.attackairinfrastructure import (
@@ -18,10 +17,6 @@ from game.commander.tasks.compound.theatersupport import TheaterSupport
 from game.commander.theaterstate import TheaterState
 from game.htn import CompoundTask, Method
 from game.income import Income
-
-# FIXME: This is a hack for the dataclass to get around the fact that couldn't figure out how to import Game
-class Game:
-    pass
 
 
 @dataclass(frozen=True)

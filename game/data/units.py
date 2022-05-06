@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+from enum import unique, Enum
+
+
+@unique
+class UnitClass(Enum):
+    UNKNOWN = "Unknown"
+    AAA = "AAA"
+    AIRCRAFT_CARRIER = "AircraftCarrier"
+    APC = "APC"
+    ARTILLERY = "Artillery"
+    ATGM = "ATGM"
+    BOAT = "Boat"
+    COMMAND_POST = "CommandPost"
+    CRUISER = "Cruiser"
+    DESTROYER = "Destroyer"
+    EARLY_WARNING_RADAR = "EarlyWarningRadar"
+    FORTIFICATION = "Fortification"
+    FRIGATE = "Frigate"
+    HELICOPTER_CARRIER = "HelicopterCarrier"
+    IFV = "IFV"
+    INFANTRY = "Infantry"
+    LANDING_SHIP = "LandingShip"
+    LAUNCHER = "Launcher"
+    LOGISTICS = "Logistics"
+    MANPAD = "Manpad"
+    MISSILE = "Missile"
+    ANTISHIP_MISSILE = "AntiShipMissile"
+    OPTICAL_TRACKER = "OpticalTracker"
+    PLANE = "Plane"
+    POWER = "Power"
+    RECON = "Recon"
+    SEARCH_LIGHT = "SearchLight"
+    SEARCH_RADAR = "SearchRadar"
+    SEARCH_TRACK_RADAR = "SearchTrackRadar"
+    SHORAD = "SHORAD"
+    SPECIALIZED_RADAR = "SpecializedRadar"
+    SUBMARINE = "Submarine"
+    TANK = "Tank"
+    TELAR = "TELAR"
+    TRACK_RADAR = "TrackRadar"

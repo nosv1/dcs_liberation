@@ -1,36 +1,34 @@
 from __future__ import annotations
 
+import datetime
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Tuple
+from uuid import UUID
 
 from dcs.mapping import Point
 from dcs.terrain import (
     caucasus,
+    marianaislands,
     nevada,
     normandy,
     persiangulf,
     syria,
     thechannel,
-    marianaislands,
 )
 from dcs.terrain.terrain import Terrain
-from pyproj import CRS, Transformer
 from shapely import geometry, ops
 
-from .controlpoint import (
-    ControlPoint,
-    MissionTarget,
-)
 from .frontline import FrontLine
+from .iadsnetwork.iadsnetwork import IadsNetwork
 from .landmap import Landmap, load_landmap, poly_contains
-from .latlon import LatLon
-from .projections import TransverseMercator
 from .seasonalconditions import SeasonalConditions
+from ..utils import Heading
 
 if TYPE_CHECKING:
-    from . import TheaterGroundObject
+    from .controlpoint import ControlPoint, MissionTarget
+    from .theatergroundobject import TheaterGroundObject
 
 
 @dataclass
@@ -42,52 +40,34 @@ class ReferencePoint:
 class ConflictTheater:
     terrain: Terrain
 
-    reference_points: Tuple[ReferencePoint, ReferencePoint]
     overview_image: str
     landmap: Optional[Landmap]
     """
     land_poly = None  # type: Polygon
     """
     daytime_map: Dict[str, Tuple[int, int]]
+    iads_network: IadsNetwork
 
     def __init__(self) -> None:
         self.controlpoints: List[ControlPoint] = []
-        self.point_to_ll_transformer = Transformer.from_crs(
-            self.projection_parameters.to_crs(), CRS("WGS84")
-        )
-        self.ll_to_point_transformer = Transformer.from_crs(
-            CRS("WGS84"), self.projection_parameters.to_crs()
-        )
         """
         self.land_poly = geometry.Polygon(self.landmap[0][0])
         for x in self.landmap[1]:
             self.land_poly = self.land_poly.difference(geometry.Polygon(x))
         """
 
-    def __getstate__(self) -> Dict[str, Any]:
-        state = self.__dict__.copy()
-        # Avoid persisting any volatile types that can be deterministically
-        # recomputed on load for the sake of save compatibility.
-        del state["point_to_ll_transformer"]
-        del state["ll_to_point_transformer"]
-        return state
-
-    def __setstate__(self, state: Dict[str, Any]) -> None:
-        self.__dict__.update(state)
-        # Regenerate any state that was not persisted.
-        self.point_to_ll_transformer = Transformer.from_crs(
-            self.projection_parameters.to_crs(), CRS("WGS84")
-        )
-        self.ll_to_point_transformer = Transformer.from_crs(
-            CRS("WGS84"), self.projection_parameters.to_crs()
-        )
-
     def add_controlpoint(self, point: ControlPoint) -> None:
         self.controlpoints.append(point)
 
+    @property
+    def ground_objects(self) -> Iterator[TheaterGroundObject]:
+        for cp in self.controlpoints:
+            for go in cp.ground_objects:
+                yield go
+
     def find_ground_objects_by_obj_name(
         self, obj_name: str
-    ) -> list[TheaterGroundObject[Any]]:
+    ) -> list[TheaterGroundObject]:
         found = []
         for cp in self.controlpoints:
             for g in cp.ground_objects:
@@ -102,11 +82,11 @@ class ConflictTheater:
         if self.is_on_land(point):
             return False
 
-        for exclusion_zone in self.landmap.exclusion_zones:
+        for exclusion_zone in self.landmap.exclusion_zones.geoms:
             if poly_contains(point.x, point.y, exclusion_zone):
                 return False
 
-        for sea in self.landmap.sea_zones:
+        for sea in self.landmap.sea_zones.geoms:
             if poly_contains(point.x, point.y, sea):
                 return True
 
@@ -123,7 +103,7 @@ class ConflictTheater:
         if not is_point_included:
             return False
 
-        for exclusion_zone in self.landmap.exclusion_zones:
+        for exclusion_zone in self.landmap.exclusion_zones.geoms:
             if poly_contains(point.x, point.y, exclusion_zone):
                 return False
 
@@ -138,7 +118,7 @@ class ConflictTheater:
         nearest_points = []
         if not self.landmap:
             raise RuntimeError("Landmap not initialized")
-        for inclusion_zone in self.landmap.inclusion_zones:
+        for inclusion_zone in self.landmap.inclusion_zones.geoms:
             nearest_pair = ops.nearest_points(point, inclusion_zone)
             nearest_points.append(nearest_pair[1])
         min_distance = point.distance(nearest_points[0])  # type: geometry.Point
@@ -149,8 +129,8 @@ class ConflictTheater:
                 min_distance = distance
                 nearest_point = pt
         assert isinstance(nearest_point, geometry.Point)
-        point = Point(point.x, point.y)
-        nearest_point = Point(nearest_point.x, nearest_point.y)
+        point = Point(point.x, point.y, self.terrain)
+        nearest_point = Point(nearest_point.x, nearest_point.y, self.terrain)
         new_point = point.point_from_heading(
             point.heading_between_point(nearest_point),
             point.distance_to_point(nearest_point) + extend_dist,
@@ -166,11 +146,8 @@ class ConflictTheater:
         return list(self.control_points_for(player=True))
 
     def conflicts(self) -> Iterator[FrontLine]:
-        for player_cp in [x for x in self.controlpoints if x.captured]:
-            for enemy_cp in [
-                x for x in player_cp.connected_points if not x.is_friendly_to(player_cp)
-            ]:
-                yield FrontLine(player_cp, enemy_cp)
+        for cp in self.player_points():
+            yield from cp.front_lines.values()
 
     def enemy_points(self) -> List[ControlPoint]:
         return list(self.control_points_for(player=False))
@@ -235,11 +212,17 @@ class ConflictTheater:
         assert closest_red is not None
         return closest_blue, closest_red
 
-    def find_control_point_by_id(self, id: int) -> ControlPoint:
+    def find_control_point_by_id(self, cp_id: UUID) -> ControlPoint:
         for i in self.controlpoints:
-            if i.id == id:
+            if i.id == cp_id:
                 return i
-        raise KeyError(f"Cannot find ControlPoint with ID {id}")
+        raise KeyError(f"Cannot find ControlPoint with ID {cp_id}")
+
+    def find_control_point_by_airport_id(self, airport_id: int) -> ControlPoint:
+        for cp in self.controlpoints:
+            if cp.dcs_airport is not None and cp.dcs_airport.id == airport_id:
+                return cp
+        raise KeyError(f"Cannot find ControlPoint with airport ID {airport_id}")
 
     def control_point_named(self, name: str) -> ControlPoint:
         for cp in self.controlpoints:
@@ -248,29 +231,39 @@ class ConflictTheater:
         raise KeyError(f"Cannot find ControlPoint named {name}")
 
     @property
-    def seasonal_conditions(self) -> SeasonalConditions:
+    def timezone(self) -> datetime.timezone:
         raise NotImplementedError
 
     @property
-    def projection_parameters(self) -> TransverseMercator:
+    def seasonal_conditions(self) -> SeasonalConditions:
         raise NotImplementedError
 
-    def point_to_ll(self, point: Point) -> LatLon:
-        lat, lon = self.point_to_ll_transformer.transform(point.x, point.y)
-        return LatLon(lat, lon)
+    def heading_to_conflict_from(self, position: Point) -> Optional[Heading]:
+        # Heading for a Group to the enemy.
+        # Should be the point between the nearest and the most distant conflict
+        conflicts: dict[MissionTarget, float] = {}
 
-    def ll_to_point(self, ll: LatLon) -> Point:
-        x, y = self.ll_to_point_transformer.transform(ll.latitude, ll.longitude)
-        return Point(x, y)
+        for conflict in self.conflicts():
+            conflicts[conflict] = conflict.position.distance_to_point(position)
+
+        if len(conflicts) == 0:
+            return None
+
+        sorted_conflicts = [
+            k for k, v in sorted(conflicts.items(), key=lambda item: item[1])
+        ]
+        last = len(sorted_conflicts) - 1
+
+        conflict_center = sorted_conflicts[0].position.midpoint(
+            sorted_conflicts[last].position
+        )
+
+        return Heading.from_degrees(position.heading_between_point(conflict_center))
 
 
 class CaucasusTheater(ConflictTheater):
     terrain = caucasus.Caucasus()
     overview_image = "caumap.gif"
-    reference_points = (
-        ReferencePoint(caucasus.Gelendzhik.position, Point(176, 298)),
-        ReferencePoint(caucasus.Batumi.position, Point(1307, 1205)),
-    )
 
     landmap = load_landmap(Path("resources/caulandmap.p"))
     daytime_map = {
@@ -281,25 +274,19 @@ class CaucasusTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=4))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.caucasus import CONDITIONS
 
         return CONDITIONS
 
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .caucasus import PARAMETERS
-
-        return PARAMETERS
-
 
 class PersianGulfTheater(ConflictTheater):
     terrain = persiangulf.PersianGulf()
     overview_image = "persiangulf.gif"
-    reference_points = (
-        ReferencePoint(persiangulf.Jiroft.position, Point(1692, 1343)),
-        ReferencePoint(persiangulf.Liwa_AFB.position, Point(358, 3238)),
-    )
     landmap = load_landmap(Path("resources/gulflandmap.p"))
     daytime_map = {
         "dawn": (6, 8),
@@ -309,25 +296,19 @@ class PersianGulfTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=4))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.persiangulf import CONDITIONS
 
         return CONDITIONS
 
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .persiangulf import PARAMETERS
-
-        return PARAMETERS
-
 
 class NevadaTheater(ConflictTheater):
     terrain = nevada.Nevada()
     overview_image = "nevada.gif"
-    reference_points = (
-        ReferencePoint(nevada.Mina.position, Point(252, 295)),
-        ReferencePoint(nevada.Laughlin.position, Point(844, 909)),
-    )
     landmap = load_landmap(Path("resources/nevlandmap.p"))
     daytime_map = {
         "dawn": (4, 6),
@@ -337,25 +318,19 @@ class NevadaTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=-8))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.nevada import CONDITIONS
 
         return CONDITIONS
 
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .nevada import PARAMETERS
-
-        return PARAMETERS
-
 
 class NormandyTheater(ConflictTheater):
     terrain = normandy.Normandy()
     overview_image = "normandy.gif"
-    reference_points = (
-        ReferencePoint(normandy.Needs_Oar_Point.position, Point(515, 329)),
-        ReferencePoint(normandy.Evreux.position, Point(2029, 1709)),
-    )
     landmap = load_landmap(Path("resources/normandylandmap.p"))
     daytime_map = {
         "dawn": (6, 8),
@@ -365,25 +340,19 @@ class NormandyTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=0))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.normandy import CONDITIONS
 
         return CONDITIONS
 
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .normandy import PARAMETERS
-
-        return PARAMETERS
-
 
 class TheChannelTheater(ConflictTheater):
     terrain = thechannel.TheChannel()
     overview_image = "thechannel.gif"
-    reference_points = (
-        ReferencePoint(thechannel.Abbeville_Drucat.position, Point(2005, 2390)),
-        ReferencePoint(thechannel.Detling.position, Point(706, 382)),
-    )
     landmap = load_landmap(Path("resources/channellandmap.p"))
     daytime_map = {
         "dawn": (6, 8),
@@ -393,25 +362,19 @@ class TheChannelTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=2))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.thechannel import CONDITIONS
 
         return CONDITIONS
 
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .thechannel import PARAMETERS
-
-        return PARAMETERS
-
 
 class SyriaTheater(ConflictTheater):
     terrain = syria.Syria()
     overview_image = "syria.gif"
-    reference_points = (
-        ReferencePoint(syria.Eyn_Shemer.position, Point(564, 1289)),
-        ReferencePoint(syria.Tabqa.position, Point(1329, 491)),
-    )
     landmap = load_landmap(Path("resources/syrialandmap.p"))
     daytime_map = {
         "dawn": (6, 8),
@@ -421,16 +384,14 @@ class SyriaTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=3))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.syria import CONDITIONS
 
         return CONDITIONS
-
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .syria import PARAMETERS
-
-        return PARAMETERS
 
 
 class MarianaIslandsTheater(ConflictTheater):
@@ -446,13 +407,11 @@ class MarianaIslandsTheater(ConflictTheater):
     }
 
     @property
+    def timezone(self) -> datetime.timezone:
+        return datetime.timezone(datetime.timedelta(hours=10))
+
+    @property
     def seasonal_conditions(self) -> SeasonalConditions:
         from .seasonalconditions.marianaislands import CONDITIONS
 
         return CONDITIONS
-
-    @property
-    def projection_parameters(self) -> TransverseMercator:
-        from .marianaislands import PARAMETERS
-
-        return PARAMETERS

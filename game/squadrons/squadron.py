@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import logging
-from collections import Iterable
+import random
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Optional, Sequence, TYPE_CHECKING
 
 from faker import Faker
 
+from game.ato import Flight, FlightType, Package
 from game.settings import AutoAtoBehavior, Settings
-from gen.ato import Package
-from gen.flights.flight import Flight, FlightType
-from gen.flights.flightplan import FlightPlanBuilder
 from .pilot import Pilot, PilotStatus
+from ..ato.flightplans.flightplanbuilder import FlightPlanBuilder
+from ..db.database import Database
 from ..utils import meters
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ class Squadron:
     livery: Optional[str]
     mission_types: tuple[FlightType, ...]
     operating_bases: OperatingBases
+    female_pilot_percentage: int
 
     #: The pool of pilots that have not yet been assigned to the squadron. This only
     #: happens when a preset squadron defines more preset pilots than the squadron limit
@@ -49,6 +51,7 @@ class Squadron:
     )
 
     coalition: Coalition = field(hash=False, compare=False)
+    flight_db: Database[Flight] = field(hash=False, compare=False)
     settings: Settings = field(hash=False, compare=False)
 
     location: ControlPoint
@@ -160,7 +163,11 @@ class Squadron:
         new_pilots = self.pilot_pool[:count]
         self.pilot_pool = self.pilot_pool[count:]
         count -= len(new_pilots)
-        new_pilots.extend([Pilot(self.faker.name()) for _ in range(count)])
+        for _ in range(count):
+            if random.randint(1, 100) > self.female_pilot_percentage:
+                new_pilots.append(Pilot(self.faker.name_male()))
+            else:
+                new_pilots.append(Pilot(self.faker.name_female()))
         self.current_roster.extend(new_pilots)
         self.available_pilots.extend(new_pilots)
 
@@ -176,15 +183,8 @@ class Squadron:
         self.deliver_orders()
 
     def replenish_lost_pilots(self) -> None:
-        if not self.pilot_limits_enabled:
-            return
-
-        replenish_count = min(
-            self.settings.squadron_replenishment_rate,
-            self._number_of_unfilled_pilot_slots,
-        )
-        if replenish_count > 0:
-            self._recruit_pilots(replenish_count)
+        if self.pilot_limits_enabled and self.replenish_count > 0:
+            self._recruit_pilots(self.replenish_count)
 
     def return_all_pilots_and_aircraft(self) -> None:
         self.available_pilots = list(self.active_pilots)
@@ -214,6 +214,17 @@ class Squadron:
     @property
     def max_size(self) -> int:
         return self.settings.squadron_pilot_limit
+
+    @property
+    def expected_pilots_next_turn(self) -> int:
+        return len(self.active_pilots) + self.replenish_count
+
+    @property
+    def replenish_count(self) -> int:
+        return min(
+            self.settings.squadron_replenishment_rate,
+            self._number_of_unfilled_pilot_slots,
+        )
 
     @property
     def active_pilots(self) -> list[Pilot]:
@@ -370,7 +381,6 @@ class Squadron:
             for flight in list(package.flights):
                 if flight.squadron == self and flight.flight_type is FlightType.FERRY:
                     package.remove_flight(flight)
-                    flight.return_pilots_and_aircraft()
             if not package.flights:
                 self.coalition.ato.remove_package(package)
 
@@ -383,7 +393,7 @@ class Squadron:
         if not remaining:
             return
 
-        package = Package(self.destination)
+        package = Package(self.destination, self.flight_db)
         builder = FlightPlanBuilder(package, self.coalition, theater)
         while remaining:
             size = min(remaining, self.aircraft.max_group_size)
@@ -429,8 +439,10 @@ class Squadron:
             squadron_def.livery,
             squadron_def.mission_types,
             squadron_def.operating_bases,
+            squadron_def.female_pilot_percentage,
             squadron_def.pilot_pool,
             coalition,
+            game.db.flights,
             game.settings,
             base,
         )

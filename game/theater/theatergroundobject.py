@@ -1,29 +1,39 @@
 from __future__ import annotations
 
 import itertools
-import logging
+import uuid
 from abc import ABC
-from collections import Sequence
-from typing import Iterator, List, TYPE_CHECKING, Union, Generic, TypeVar
+from typing import Type
+from typing import Any, Iterator, List, Optional, TYPE_CHECKING
 
 from dcs.mapping import Point
-from dcs.triggers import TriggerZone
-from dcs.unit import Unit
-from dcs.unitgroup import ShipGroup, VehicleGroup
 
-from .. import db
-from ..data.radar_db import (
-    TRACK_RADARS,
-    TELARS,
-    LAUNCHER_TRACKER_PAIRS,
+from dcs.unittype import VehicleType
+from dcs.unittype import ShipType
+from shapely.geometry import Point as ShapelyPoint
+
+from game.sidc import (
+    Entity,
+    LandEquipmentEntity,
+    LandInstallationEntity,
+    LandUnitEntity,
+    SeaSurfaceEntity,
+    SidcDescribable,
+    StandardIdentity,
+    Status,
+    SymbolSet,
 )
+from game.theater.presetlocation import PresetLocation
+from .missiontarget import MissionTarget
+from ..data.radar_db import LAUNCHER_TRACKER_PAIRS, TELARS, TRACK_RADARS
 from ..utils import Distance, Heading, meters
 
 if TYPE_CHECKING:
+    from game.ato.flighttype import FlightType
+    from game.threatzones import ThreatPoly
+    from .theatergroup import TheaterUnit, TheaterGroup
     from .controlpoint import ControlPoint
-    from gen.flights.flight import FlightType
 
-from .missiontarget import MissionTarget
 
 NAME_BY_CATEGORY = {
     "ewr": "Early Warning Radar",
@@ -32,6 +42,7 @@ NAME_BY_CATEGORY = {
     "ammo": "Ammo depot",
     "armor": "Armor group",
     "coastal": "Coastal defense",
+    "commandcenter": "Command Center",
     "comms": "Communications tower",
     "derrick": "Derrick",
     "factory": "Factory",
@@ -48,56 +59,80 @@ NAME_BY_CATEGORY = {
 }
 
 
-GroupT = TypeVar("GroupT", ShipGroup, VehicleGroup)
-
-
-class TheaterGroundObject(MissionTarget, Generic[GroupT]):
+class TheaterGroundObject(MissionTarget, SidcDescribable, ABC):
     def __init__(
         self,
         name: str,
         category: str,
-        group_id: int,
-        position: Point,
-        heading: Heading,
+        location: PresetLocation,
         control_point: ControlPoint,
-        dcs_identifier: str,
         sea_object: bool,
     ) -> None:
-        super().__init__(name, position)
+        super().__init__(name, location)
+        self.id = uuid.uuid4()
         self.category = category
-        self.group_id = group_id
-        self.heading = heading
+        self.heading = location.heading
         self.control_point = control_point
-        self.dcs_identifier = dcs_identifier
         self.sea_object = sea_object
-        self.groups: List[GroupT] = []
+        self.groups: List[TheaterGroup] = []
+        self.original_name = location.original_name
+        self._threat_poly: ThreatPoly | None = None
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        del state["_threat_poly"]
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        state["_threat_poly"] = None
+        self.__dict__.update(state)
+
+    @property
+    def sidc_status(self) -> Status:
+        return Status.PRESENT_DESTROYED if self.is_dead else Status.PRESENT
+
+    @property
+    def standard_identity(self) -> StandardIdentity:
+        return (
+            StandardIdentity.FRIEND
+            if self.control_point.captured
+            else StandardIdentity.HOSTILE_FAKER
+        )
 
     @property
     def is_dead(self) -> bool:
         return self.alive_unit_count == 0
 
     @property
-    def units(self) -> List[Unit]:
+    def units(self) -> Iterator[TheaterUnit]:
         """
         :return: all the units at this location
         """
-        return list(itertools.chain.from_iterable([g.units for g in self.groups]))
+        yield from itertools.chain.from_iterable([g.units for g in self.groups])
 
     @property
-    def dead_units(self) -> List[Unit]:
+    def statics(self) -> Iterator[TheaterUnit]:
+        for group in self.groups:
+            for unit in group.units:
+                if unit.is_static:
+                    yield unit
+
+    @property
+    def dead_units(self) -> list[TheaterUnit]:
         """
         :return: all the dead units at this location
         """
-        return list(
-            itertools.chain.from_iterable(
-                [getattr(g, "units_losts", []) for g in self.groups]
-            )
-        )
+        return [unit for unit in self.units if not unit.alive]
 
     @property
     def group_name(self) -> str:
         """The name of the unit group."""
-        return f"{self.category}|{self.group_id}"
+        return f"{self.category}|{self.name}"
+
+    @property
+    def display_name(self) -> str:
+        """The display name of the tgo which will be shown on the map."""
+        return self.group_name
 
     @property
     def waypoint_name(self) -> str:
@@ -105,9 +140,6 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
 
     def __str__(self) -> str:
         return NAME_BY_CATEGORY[self.category]
-
-    def is_same_group(self, identifier: str) -> bool:
-        return self.group_id == identifier
 
     @property
     def obj_name(self) -> str:
@@ -121,7 +153,7 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
         return self.control_point.is_friendly(to_player)
 
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
-        from gen.flights.flight import FlightType
+        from game.ato import FlightType
 
         if self.is_friendly(for_player):
             yield from [
@@ -132,12 +164,17 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
             yield from [
                 FlightType.STRIKE,
                 FlightType.BAI,
+                FlightType.REFUELING,
             ]
         yield from super().mission_types(for_player)
 
     @property
+    def unit_count(self) -> int:
+        return sum([g.unit_count for g in self.groups])
+
+    @property
     def alive_unit_count(self) -> int:
-        return sum(len(g.units) for g in self.groups)
+        return sum([g.alive_units for g in self.groups])
 
     @property
     def might_have_aa(self) -> bool:
@@ -151,28 +188,27 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
                 return True
         return False
 
-    def _max_range_of_type(self, group: GroupT, range_type: str) -> Distance:
+    def _max_range_of_type(self, group: TheaterGroup, range_type: str) -> Distance:
         if not self.might_have_aa:
             return meters(0)
 
         max_range = meters(0)
         for u in group.units:
-            unit = db.unit_type_from_name(u.type)
-            if unit is None:
-                logging.error(f"Unknown unit type {u.type}")
-                continue
-
             # Some units in pydcs have detection_range/threat_range defined,
             # but explicitly set to None.
-            unit_range = getattr(unit, range_type, None)
+            unit_range = getattr(u.type, range_type, None)
             if unit_range is not None:
                 max_range = max(max_range, meters(unit_range))
         return max_range
 
     def max_detection_range(self) -> Distance:
-        return max(self.detection_range(g) for g in self.groups)
+        return (
+            max(self.detection_range(g) for g in self.groups)
+            if self.groups
+            else meters(0)
+        )
 
-    def detection_range(self, group: GroupT) -> Distance:
+    def detection_range(self, group: TheaterGroup) -> Distance:
         return self._max_range_of_type(group, "detection_range")
 
     def max_threat_range(self) -> Distance:
@@ -180,8 +216,24 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
             max(self.threat_range(g) for g in self.groups) if self.groups else meters(0)
         )
 
-    def threat_range(self, group: GroupT, radar_only: bool = False) -> Distance:
+    def threat_range(self, group: TheaterGroup, radar_only: bool = False) -> Distance:
         return self._max_range_of_type(group, "threat_range")
+
+    def threat_poly(self) -> ThreatPoly | None:
+        if self._threat_poly is None:
+            self._threat_poly = self._make_threat_poly()
+        return self._threat_poly
+
+    def invalidate_threat_poly(self) -> None:
+        self._threat_poly = None
+
+    def _make_threat_poly(self) -> ThreatPoly | None:
+        threat_range = self.max_threat_range()
+        if not threat_range:
+            return None
+
+        point = ShapelyPoint(self.position.x, self.position.y)
+        return point.buffer(threat_range.meters)
 
     @property
     def is_ammo_depot(self) -> bool:
@@ -197,14 +249,15 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
         return False
 
     @property
-    def strike_targets(self) -> Sequence[Union[MissionTarget, Unit]]:
-        return self.units
+    def strike_targets(self) -> list[TheaterUnit]:
+        return [unit for unit in self.units if unit.alive]
 
     @property
     def mark_locations(self) -> Iterator[Point]:
         yield self.position
 
     def clear(self) -> None:
+        self.invalidate_threat_poly()
         self.groups = []
 
     @property
@@ -215,71 +268,85 @@ class TheaterGroundObject(MissionTarget, Generic[GroupT]):
     def purchasable(self) -> bool:
         raise NotImplementedError
 
+    @property
+    def value(self) -> int:
+        """The value of all units of the Ground Objects"""
+        return sum(u.unit_type.price for u in self.units if u.unit_type and u.alive)
 
-class BuildingGroundObject(TheaterGroundObject[VehicleGroup]):
+    def group_by_name(self, name: str) -> Optional[TheaterGroup]:
+        for group in self.groups:
+            if group.name == name:
+                return group
+        return None
+
+    def rotate(self, heading: Heading) -> None:
+        """Rotate the whole TGO clockwise to the new heading"""
+        rotation = heading - self.heading
+        if rotation.degrees < 0:
+            rotation = Heading.from_degrees(rotation.degrees + 360)
+
+        self.heading = heading
+        # Rotate the whole TGO to match the new heading
+        for unit in self.units:
+            unit.position.heading += rotation
+            unit.position.rotate(self.position, rotation)
+
+
+class BuildingGroundObject(TheaterGroundObject):
     def __init__(
         self,
         name: str,
         category: str,
-        group_id: int,
-        object_id: int,
-        position: Point,
-        heading: Heading,
+        location: PresetLocation,
         control_point: ControlPoint,
-        dcs_identifier: str,
         is_fob_structure: bool = False,
     ) -> None:
         super().__init__(
             name=name,
             category=category,
-            group_id=group_id,
-            position=position,
-            heading=heading,
+            location=location,
             control_point=control_point,
-            dcs_identifier=dcs_identifier,
             sea_object=False,
         )
         self.is_fob_structure = is_fob_structure
-        self.object_id = object_id
-        # Other TGOs track deadness based on the number of alive units, but
-        # buildings don't have groups assigned to the TGO.
-        self._dead = False
 
     @property
-    def group_name(self) -> str:
-        """The name of the unit group."""
-        return f"{self.category}|{self.group_id}|{self.object_id}"
-
-    @property
-    def waypoint_name(self) -> str:
-        return f"{super().waypoint_name} #{self.object_id}"
-
-    @property
-    def is_dead(self) -> bool:
-        if not hasattr(self, "_dead"):
-            self._dead = False
-        return self._dead
-
-    def kill(self) -> None:
-        self._dead = True
-
-    def iter_building_group(self) -> Iterator[BuildingGroundObject]:
-        for tgo in self.control_point.ground_objects:
-            if (
-                tgo.obj_name == self.obj_name
-                and not tgo.is_dead
-                and isinstance(tgo, BuildingGroundObject)
-            ):
-                yield tgo
-
-    @property
-    def strike_targets(self) -> List[BuildingGroundObject]:
-        return list(self.iter_building_group())
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        if self.category == "allycamp":
+            entity = LandInstallationEntity.TENTED_CAMP
+        elif self.category == "ammo":
+            entity = LandInstallationEntity.AMMUNITION_CACHE
+        elif self.category == "commandcenter":
+            entity = LandInstallationEntity.MILITARY_INFRASTRUCTURE
+        elif self.category == "comms":
+            entity = LandInstallationEntity.TELECOMMUNICATIONS_TOWER
+        elif self.category == "derrick":
+            entity = LandInstallationEntity.PETROLEUM_FACILITY
+        elif self.category == "factory":
+            entity = LandInstallationEntity.MAINTENANCE_FACILITY
+        elif self.category == "farp":
+            entity = LandInstallationEntity.HELICOPTER_LANDING_SITE
+        elif self.category == "fuel":
+            entity = LandInstallationEntity.WAREHOUSE_STORAGE_FACILITY
+        elif self.category == "oil":
+            entity = LandInstallationEntity.PETROLEUM_FACILITY
+        elif self.category == "power":
+            entity = LandInstallationEntity.GENERATION_STATION
+        elif self.category == "village":
+            entity = LandInstallationEntity.PUBLIC_VENUES_INFRASTRUCTURE
+        elif self.category == "ware":
+            entity = LandInstallationEntity.WAREHOUSE_STORAGE_FACILITY
+        elif self.category == "ww2bunker":
+            entity = LandInstallationEntity.MILITARY_BASE
+        else:
+            raise ValueError(f"Unhandled building category: {self.category}")
+        return SymbolSet.LAND_INSTALLATIONS, entity
 
     @property
     def mark_locations(self) -> Iterator[Point]:
-        for building in self.iter_building_group():
-            yield building.position
+        # Special handling to mark all buildings of the TGO
+        for unit in self.strike_targets:
+            yield unit.position
 
     @property
     def is_control_point(self) -> bool:
@@ -293,58 +360,16 @@ class BuildingGroundObject(TheaterGroundObject[VehicleGroup]):
     def purchasable(self) -> bool:
         return False
 
+    def max_threat_range(self) -> Distance:
+        return meters(0)
 
-class SceneryGroundObject(BuildingGroundObject):
-    def __init__(
-        self,
-        name: str,
-        category: str,
-        group_id: int,
-        object_id: int,
-        position: Point,
-        control_point: ControlPoint,
-        dcs_identifier: str,
-        zone: TriggerZone,
-    ) -> None:
-        super().__init__(
-            name=name,
-            category=category,
-            group_id=group_id,
-            object_id=object_id,
-            position=position,
-            heading=Heading.from_degrees(0),
-            control_point=control_point,
-            dcs_identifier=dcs_identifier,
-            is_fob_structure=False,
-        )
-        self.zone = zone
+    def max_detection_range(self) -> Distance:
+        return meters(0)
 
 
-class FactoryGroundObject(BuildingGroundObject):
-    def __init__(
-        self,
-        name: str,
-        group_id: int,
-        position: Point,
-        heading: Heading,
-        control_point: ControlPoint,
-    ) -> None:
-        super().__init__(
-            name=name,
-            category="factory",
-            group_id=group_id,
-            object_id=0,
-            position=position,
-            heading=heading,
-            control_point=control_point,
-            dcs_identifier="Workshop A",
-            is_fob_structure=False,
-        )
-
-
-class NavalGroundObject(TheaterGroundObject[ShipGroup]):
+class NavalGroundObject(TheaterGroundObject, ABC):
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
-        from gen.flights.flight import FlightType
+        from game.ato import FlightType
 
         if not self.is_friendly(for_player):
             yield FlightType.ANTISHIP
@@ -363,7 +388,7 @@ class NavalGroundObject(TheaterGroundObject[ShipGroup]):
         return False
 
 
-class GenericCarrierGroundObject(NavalGroundObject):
+class GenericCarrierGroundObject(NavalGroundObject, ABC):
     @property
     def is_control_point(self) -> bool:
         return True
@@ -371,60 +396,61 @@ class GenericCarrierGroundObject(NavalGroundObject):
 
 # TODO: Why is this both a CP and a TGO?
 class CarrierGroundObject(GenericCarrierGroundObject):
-    def __init__(self, name: str, group_id: int, control_point: ControlPoint) -> None:
+    def __init__(
+        self, name: str, location: PresetLocation, control_point: ControlPoint
+    ) -> None:
         super().__init__(
             name=name,
             category="CARRIER",
-            group_id=group_id,
-            position=control_point.position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="CARRIER",
             sea_object=True,
         )
 
     @property
-    def group_name(self) -> str:
-        # Prefix the group names with the side color so Skynet can find them,
-        # add to EWR.
-        return f"{self.faction_color}|EWR|{super().group_name}"
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.SEA_SURFACE, SeaSurfaceEntity.CARRIER
+
+    def __str__(self) -> str:
+        return f"CV {self.name}"
 
 
 # TODO: Why is this both a CP and a TGO?
 class LhaGroundObject(GenericCarrierGroundObject):
-    def __init__(self, name: str, group_id: int, control_point: ControlPoint) -> None:
+    def __init__(
+        self, name: str, location: PresetLocation, control_point: ControlPoint
+    ) -> None:
         super().__init__(
             name=name,
             category="LHA",
-            group_id=group_id,
-            position=control_point.position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="LHA",
             sea_object=True,
         )
 
     @property
-    def group_name(self) -> str:
-        # Prefix the group names with the side color so Skynet can find them,
-        # add to EWR.
-        return f"{self.faction_color}|EWR|{super().group_name}"
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.SEA_SURFACE, SeaSurfaceEntity.AMPHIBIOUS_ASSAULT_SHIP_GENERAL
+
+    def __str__(self) -> str:
+        return f"LHA {self.name}"
 
 
-class MissileSiteGroundObject(TheaterGroundObject[VehicleGroup]):
+class MissileSiteGroundObject(TheaterGroundObject):
     def __init__(
-        self, name: str, group_id: int, position: Point, control_point: ControlPoint
+        self, name: str, location: PresetLocation, control_point: ControlPoint
     ) -> None:
         super().__init__(
             name=name,
             category="missile",
-            group_id=group_id,
-            position=position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="AA",
             sea_object=False,
         )
+
+    @property
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.LAND_UNIT, LandUnitEntity.MISSILE
 
     @property
     def capturable(self) -> bool:
@@ -435,25 +461,24 @@ class MissileSiteGroundObject(TheaterGroundObject[VehicleGroup]):
         return False
 
 
-class CoastalSiteGroundObject(TheaterGroundObject[VehicleGroup]):
+class CoastalSiteGroundObject(TheaterGroundObject):
     def __init__(
         self,
         name: str,
-        group_id: int,
-        position: Point,
+        location: PresetLocation,
         control_point: ControlPoint,
-        heading: Heading,
     ) -> None:
         super().__init__(
             name=name,
             category="coastal",
-            group_id=group_id,
-            position=position,
-            heading=heading,
+            location=location,
             control_point=control_point,
-            dcs_identifier="AA",
             sea_object=False,
         )
+
+    @property
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.LAND_UNIT, LandUnitEntity.MISSILE
 
     @property
     def capturable(self) -> bool:
@@ -464,9 +489,24 @@ class CoastalSiteGroundObject(TheaterGroundObject[VehicleGroup]):
         return False
 
 
-class IadsGroundObject(TheaterGroundObject[VehicleGroup], ABC):
+class IadsGroundObject(TheaterGroundObject, ABC):
+    def __init__(
+        self,
+        name: str,
+        location: PresetLocation,
+        control_point: ControlPoint,
+        category: str = "aa",
+    ) -> None:
+        super().__init__(
+            name=name,
+            category=category,
+            location=location,
+            control_point=control_point,
+            sea_object=False,
+        )
+
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
-        from gen.flights.flight import FlightType
+        from game.ato import FlightType
 
         if not self.is_friendly(for_player):
             yield FlightType.DEAD
@@ -480,23 +520,30 @@ class SamGroundObject(IadsGroundObject):
     def __init__(
         self,
         name: str,
-        group_id: int,
-        position: Point,
+        location: PresetLocation,
         control_point: ControlPoint,
     ) -> None:
         super().__init__(
             name=name,
             category="aa",
-            group_id=group_id,
-            position=position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="AA",
-            sea_object=False,
         )
 
+    @property
+    def sidc_status(self) -> Status:
+        if self.is_dead:
+            return Status.PRESENT_DESTROYED
+        if self.max_threat_range() > meters(0):
+            return Status.PRESENT
+        return Status.PRESENT_DAMAGED
+
+    @property
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.LAND_UNIT, LandUnitEntity.AIR_DEFENSE
+
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
-        from gen.flights.flight import FlightType
+        from game.ato import FlightType
 
         if not self.is_friendly(for_player):
             yield FlightType.DEAD
@@ -511,13 +558,15 @@ class SamGroundObject(IadsGroundObject):
     def might_have_aa(self) -> bool:
         return True
 
-    def threat_range(self, group: VehicleGroup, radar_only: bool = False) -> Distance:
+    def threat_range(self, group: TheaterGroup, radar_only: bool = False) -> Distance:
         max_non_radar = meters(0)
         live_trs = set()
         max_telar_range = meters(0)
         launchers = set()
         for unit in group.units:
-            unit_type = db.vehicle_type_from_name(unit.type)
+            if not unit.alive or not issubclass(unit.type, VehicleType):
+                continue
+            unit_type = unit.type
             if unit_type in TRACK_RADARS:
                 live_trs.add(unit_type)
             elif unit_type in TELARS:
@@ -544,23 +593,26 @@ class SamGroundObject(IadsGroundObject):
         return True
 
 
-class VehicleGroupGroundObject(TheaterGroundObject[VehicleGroup]):
+class VehicleGroupGroundObject(TheaterGroundObject):
     def __init__(
         self,
         name: str,
-        group_id: int,
-        position: Point,
+        location: PresetLocation,
         control_point: ControlPoint,
     ) -> None:
         super().__init__(
             name=name,
             category="armor",
-            group_id=group_id,
-            position=position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="AA",
             sea_object=False,
+        )
+
+    @property
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return (
+            SymbolSet.LAND_UNIT,
+            LandUnitEntity.ARMOR_ARMORED_MECHANIZED_SELF_PROPELLED_TRACKED,
         )
 
     @property
@@ -576,26 +628,19 @@ class EwrGroundObject(IadsGroundObject):
     def __init__(
         self,
         name: str,
-        group_id: int,
-        position: Point,
+        location: PresetLocation,
         control_point: ControlPoint,
     ) -> None:
         super().__init__(
             name=name,
-            category="ewr",
-            group_id=group_id,
-            position=position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="EWR",
-            sea_object=False,
+            category="ewr",
         )
 
     @property
-    def group_name(self) -> str:
-        # Prefix the group names with the side color so Skynet can find them.
-        # Use Group Id and uppercase EWR
-        return f"{self.faction_color}|EWR|{self.group_id}"
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.LAND_EQUIPMENT, LandEquipmentEntity.RADAR
 
     @property
     def might_have_aa(self) -> bool:
@@ -612,21 +657,24 @@ class EwrGroundObject(IadsGroundObject):
 
 class ShipGroundObject(NavalGroundObject):
     def __init__(
-        self, name: str, group_id: int, position: Point, control_point: ControlPoint
+        self, name: str, location: PresetLocation, control_point: ControlPoint
     ) -> None:
         super().__init__(
             name=name,
             category="ship",
-            group_id=group_id,
-            position=position,
-            heading=Heading.from_degrees(0),
+            location=location,
             control_point=control_point,
-            dcs_identifier="AA",
             sea_object=True,
         )
 
     @property
-    def group_name(self) -> str:
-        # Prefix the group names with the side color so Skynet can find them,
-        # add to EWR.
-        return f"{self.faction_color}|EWR|{super().group_name}"
+    def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
+        return SymbolSet.SEA_SURFACE, SeaSurfaceEntity.SURFACE_COMBATANT_LINE
+
+
+class IadsBuildingGroundObject(BuildingGroundObject):
+    def mission_types(self, for_player: bool) -> Iterator[FlightType]:
+        from game.ato import FlightType
+
+        if not self.is_friendly(for_player):
+            yield from [FlightType.STRIKE, FlightType.DEAD]

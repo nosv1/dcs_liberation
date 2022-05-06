@@ -1,5 +1,6 @@
-from dcs.unit import Unit
 from dcs.vehicles import AirDefence
+
+from game.theater.theatergroup import TheaterUnit
 
 
 class AlicCodes:
@@ -38,5 +39,5 @@ class AlicCodes:
     }
 
     @classmethod
-    def code_for(cls, unit: Unit) -> int:
-        return cls.CODES[unit.type]
+    def code_for(cls, unit: TheaterUnit) -> int:
+        return cls.CODES[unit.type.id]

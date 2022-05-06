@@ -1,49 +1,54 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import ClassVar, Type, Iterator, TYPE_CHECKING, Optional, Any
+from typing import Any, Iterator, Optional, TYPE_CHECKING, Type, Dict
 
 import yaml
 from dcs.helicopters import helicopter_map
 from dcs.planes import plane_map
 from dcs.unittype import FlyingType
 
+from game.data.units import UnitClass
+from game.dcs.unitproperty import UnitProperty
 from game.dcs.unittype import UnitType
 from game.radio.channels import (
     ApacheChannelNamer,
     ChannelNamer,
-    RadioChannelAllocator,
     CommonRadioChannelAllocator,
-    HueyChannelNamer,
-    SCR522ChannelNamer,
-    ViggenChannelNamer,
-    ViperChannelNamer,
-    TomcatChannelNamer,
-    MirageChannelNamer,
-    SingleRadioChannelNamer,
     FarmerRadioChannelAllocator,
-    SCR522RadioChannelAllocator,
-    ViggenRadioChannelAllocator,
+    HueyChannelNamer,
+    MirageChannelNamer,
     NoOpChannelAllocator,
+    RadioChannelAllocator,
+    SCR522ChannelNamer,
+    SCR522RadioChannelAllocator,
+    SingleRadioChannelNamer,
+    TomcatChannelNamer,
+    ViggenChannelNamer,
+    ViggenRadioChannelAllocator,
+    ViperChannelNamer,
 )
 from game.utils import (
     Distance,
+    ImperialUnits,
+    MetricUnits,
+    NauticalUnits,
     SPEED_OF_SOUND_AT_SEA_LEVEL,
     Speed,
+    UnitSystem,
     feet,
-    kph,
     knots,
+    kph,
     nautical_miles,
 )
 
 if TYPE_CHECKING:
-    from gen.aircraft import FlightData
-    from gen.airsupport import AirSupport
-    from gen.radios import Radio, RadioFrequency, RadioRegistry
+    from game.missiongenerator.aircraft.flightdata import FlightData
+    from game.missiongenerator.airsupport import AirSupport
+    from game.radio.radios import Radio, RadioFrequency, RadioRegistry
 
 
 @dataclass(frozen=True)
@@ -64,7 +69,7 @@ class RadioConfig:
 
     @classmethod
     def make_radio(cls, name: Optional[str]) -> Optional[Radio]:
-        from gen.radios import get_radio
+        from game.radio.radios import get_radio
 
         if name is None:
             return None
@@ -155,6 +160,12 @@ class AircraftType(UnitType[Type[FlyingType]]):
     # main weapon. It'll RTB when it doesn't have gun ammo left.
     gunfighter: bool
 
+    # UnitSystem to use for the kneeboard, defaults to Nautical (kt/nm/ft)
+    kneeboard_units: UnitSystem
+
+    # If true, kneeboards will display zulu times
+    utc_kneeboard: bool
+
     max_group_size: int
     patrol_altitude: Optional[Distance]
     patrol_speed: Optional[Speed]
@@ -165,22 +176,11 @@ class AircraftType(UnitType[Type[FlyingType]]):
 
     fuel_consumption: Optional[FuelConsumption]
 
+    default_livery: Optional[str]
+
     intra_flight_radio: Optional[Radio]
     channel_allocator: Optional[RadioChannelAllocator]
     channel_namer: Type[ChannelNamer]
-
-    _by_name: ClassVar[dict[str, AircraftType]] = {}
-    _by_unit_type: ClassVar[dict[Type[FlyingType], list[AircraftType]]] = defaultdict(
-        list
-    )
-    _loaded: ClassVar[bool] = False
-
-    def __str__(self) -> str:
-        return self.name
-
-    @property
-    def dcs_id(self) -> str:
-        return self.dcs_unit_type.id
 
     @property
     def flyable(self) -> bool:
@@ -257,7 +257,7 @@ class AircraftType(UnitType[Type[FlyingType]]):
                 return min(Speed.from_mach(0.35, altitude), max_speed * 0.7)
 
     def alloc_flight_radio(self, radio_registry: RadioRegistry) -> RadioFrequency:
-        from gen.radios import ChannelInUseError, kHz
+        from game.radio.radios import ChannelInUseError, kHz
 
         if self.intra_flight_radio is not None:
             return radio_registry.alloc_for_radio(self.intra_flight_radio)
@@ -289,6 +289,9 @@ class AircraftType(UnitType[Type[FlyingType]]):
     def channel_name(self, radio_id: int, channel_id: int) -> str:
         return self.channel_namer.channel_name(radio_id, channel_id)
 
+    def iter_props(self) -> Iterator[UnitProperty[Any]]:
+        return UnitProperty.for_aircraft(self.dcs_unit_type)
+
     def __setstate__(self, state: dict[str, Any]) -> None:
         # Update any existing models with new data on load.
         updated = AircraftType.named(state["name"])
@@ -296,33 +299,42 @@ class AircraftType(UnitType[Type[FlyingType]]):
         self.__dict__.update(state)
 
     @classmethod
-    def register(cls, aircraft_type: AircraftType) -> None:
-        cls._by_name[aircraft_type.name] = aircraft_type
-        cls._by_unit_type[aircraft_type.dcs_unit_type].append(aircraft_type)
-
-    @classmethod
     def named(cls, name: str) -> AircraftType:
         if not cls._loaded:
             cls._load_all()
-        return cls._by_name[name]
+        unit = cls._by_name[name]
+        assert isinstance(unit, AircraftType)
+        return unit
 
     @classmethod
     def for_dcs_type(cls, dcs_unit_type: Type[FlyingType]) -> Iterator[AircraftType]:
         if not cls._loaded:
             cls._load_all()
-        yield from cls._by_unit_type[dcs_unit_type]
+        for unit in cls._by_unit_type[dcs_unit_type]:
+            assert isinstance(unit, AircraftType)
+            yield unit
 
     @staticmethod
     def _each_unit_type() -> Iterator[Type[FlyingType]]:
         yield from helicopter_map.values()
         yield from plane_map.values()
 
-    @classmethod
-    def _load_all(cls) -> None:
-        for unit_type in cls._each_unit_type():
-            for data in cls._each_variant_of(unit_type):
-                cls.register(data)
-        cls._loaded = True
+    @staticmethod
+    def _set_props_overrides(
+        config: Dict[str, Any], aircraft: Type[FlyingType], data_path: Path
+    ) -> None:
+        if aircraft.property_defaults is None:
+            logging.warning(
+                f"'{data_path.name}' attempted to set default prop that does not exist."
+            )
+        else:
+            for k in config:
+                if k in aircraft.property_defaults:
+                    aircraft.property_defaults[k] = config[k]
+                else:
+                    logging.warning(
+                        f"'{data_path.name}' attempted to set default prop '{k}' that does not exist"
+                    )
 
     @classmethod
     def _each_variant_of(cls, aircraft: Type[FlyingType]) -> Iterator[AircraftType]:
@@ -368,6 +380,17 @@ class AircraftType(UnitType[Type[FlyingType]]):
         except KeyError:
             introduction = "No data."
 
+        units_data = data.get("kneeboard_units", "nautical").lower()
+        units: UnitSystem = NauticalUnits()
+        if units_data == "imperial":
+            units = ImperialUnits()
+        if units_data == "metric":
+            units = MetricUnits()
+
+        prop_overrides = data.get("default_overrides")
+        if prop_overrides is not None:
+            cls._set_props_overrides(prop_overrides, aircraft, data_path)
+
         for variant in data.get("variants", [aircraft.id]):
             yield AircraftType(
                 dcs_unit_type=aircraft,
@@ -390,7 +413,11 @@ class AircraftType(UnitType[Type[FlyingType]]):
                 patrol_speed=patrol_config.speed,
                 max_mission_range=mission_range,
                 fuel_consumption=fuel_consumption,
+                default_livery=data.get("default_livery"),
                 intra_flight_radio=radio_config.intra_flight,
                 channel_allocator=radio_config.channel_allocator,
                 channel_namer=radio_config.channel_namer,
+                kneeboard_units=units,
+                utc_kneeboard=data.get("utc_kneeboard", False),
+                unit_class=UnitClass.PLANE,
             )

@@ -3,26 +3,27 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-from collections import Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
 
-from packaging.version import Version
 import yaml
+from packaging.version import Version
 
 from game.profiling import logged_duration
 from game.theater import (
-    ConflictTheater,
     CaucasusTheater,
-    NevadaTheater,
-    PersianGulfTheater,
-    NormandyTheater,
-    TheChannelTheater,
-    SyriaTheater,
+    ConflictTheater,
     MarianaIslandsTheater,
+    NevadaTheater,
+    NormandyTheater,
+    PersianGulfTheater,
+    SyriaTheater,
+    TheChannelTheater,
 )
-from game.version import CAMPAIGN_FORMAT_VERSION, SUPPORTED_CAMPAIGN_VERSION
+from game.theater.iadsnetwork.iadsnetwork import IadsNetwork
+from game.version import CAMPAIGN_FORMAT_VERSION
 from .campaignairwingconfig import CampaignAirWingConfig
 from .mizcampaignloader import MizCampaignLoader
 from .. import persistency
@@ -31,6 +32,7 @@ PERF_FRIENDLY = 0
 PERF_MEDIUM = 1
 PERF_HARD = 2
 PERF_NASA = 3
+DEFAULT_BUDGET = 2000
 
 
 @dataclass(frozen=True)
@@ -48,9 +50,16 @@ class Campaign:
     recommended_player_faction: str
     recommended_enemy_faction: str
     recommended_start_date: Optional[datetime.date]
+
+    recommended_player_money: int
+    recommended_enemy_money: int
+    recommended_player_income_multiplier: float
+    recommended_enemy_income_multiplier: float
+
     performance: int
     data: Dict[str, Any]
     path: Path
+    advanced_iads: bool
 
     @classmethod
     def from_file(cls, path: Path) -> Campaign:
@@ -95,12 +104,17 @@ class Campaign:
             data.get("recommended_player_faction", "USA 2005"),
             data.get("recommended_enemy_faction", "Russia 1990"),
             start_date,
+            data.get("recommended_player_money", DEFAULT_BUDGET),
+            data.get("recommended_enemy_money", DEFAULT_BUDGET),
+            data.get("recommended_player_income_multiplier", 1.0),
+            data.get("recommended_enemy_income_multiplier", 1.0),
             data.get("performance", 0),
             data,
             path,
+            data.get("advanced_iads", False),
         )
 
-    def load_theater(self) -> ConflictTheater:
+    def load_theater(self, advanced_iads: bool) -> ConflictTheater:
         theaters = {
             "Caucasus": CaucasusTheater,
             "Nevada": NevadaTheater,
@@ -122,6 +136,10 @@ class Campaign:
 
         with logged_duration("Importing miz data"):
             MizCampaignLoader(self.path.parent / miz, t).populate_theater()
+
+        # Load IADS Config from campaign yaml
+        iads_data = self.data.get("iads_config", [])
+        t.iads_network = IadsNetwork(advanced_iads, iads_data)
         return t
 
     def load_air_wing_config(self, theater: ConflictTheater) -> CampaignAirWingConfig:
@@ -147,7 +165,7 @@ class Campaign:
     @property
     def is_from_future(self) -> bool:
         """Returns True if this campaign is newer than the supported format."""
-        return self.version > SUPPORTED_CAMPAIGN_VERSION
+        return self.version > CAMPAIGN_FORMAT_VERSION
 
     @property
     def is_compatible(self) -> bool:

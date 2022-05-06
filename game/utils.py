@@ -2,23 +2,163 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 import random
-from collections import Iterable
+from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Union, Any, TypeVar
+from typing import TypeVar, Union
+
+from dcs import Point
+from shapely.geometry import Point as ShapelyPoint
 
 METERS_TO_FEET = 3.28084
 FEET_TO_METERS = 1 / METERS_TO_FEET
 NM_TO_METERS = 1852
 METERS_TO_NM = 1 / NM_TO_METERS
+MILES_TO_METERS = 1609.34
+METERS_TO_MILES = 1 / MILES_TO_METERS
 
 KNOTS_TO_KPH = 1.852
 KPH_TO_KNOTS = 1 / KNOTS_TO_KPH
 MS_TO_KPH = 3.6
 KPH_TO_MS = 1 / MS_TO_KPH
+KPH_TO_MPH = 0.621371
+MPH_TO_KPH = 1 / KPH_TO_MPH
 
 INHG_TO_HPA = 33.86389
 INHG_TO_MMHG = 25.400002776728
+
+LBS_TO_KG = 0.453592
+KG_TO_LBS = 1 / LBS_TO_KG
+
+
+class UnitSystem(ABC):
+    @abstractmethod
+    def distance_short(self, dist: Distance) -> float:
+        pass
+
+    @abstractmethod
+    def distance_long(self, dist: Distance) -> float:
+        pass
+
+    @property
+    @abstractmethod
+    def distance_short_uom(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def distance_long_uom(self) -> str:
+        pass
+
+    @abstractmethod
+    def speed(self, speed: Speed) -> float:
+        pass
+
+    @property
+    @abstractmethod
+    def speed_uom(self) -> str:
+        pass
+
+    @abstractmethod
+    def mass(self, mass: Mass) -> float:
+        pass
+
+    @property
+    @abstractmethod
+    def mass_uom(self) -> str:
+        pass
+
+
+class NauticalUnits(UnitSystem):
+    def distance_short(self, dist: Distance) -> float:
+        return dist.feet
+
+    def distance_long(self, dist: Distance) -> float:
+        return dist.nautical_miles
+
+    @property
+    def distance_short_uom(self) -> str:
+        return "ft"
+
+    @property
+    def distance_long_uom(self) -> str:
+        return "nm"
+
+    def speed(self, speed: Speed) -> float:
+        return speed.knots
+
+    @property
+    def speed_uom(self) -> str:
+        return "kt"
+
+    def mass(self, mass: Mass) -> float:
+        return mass.pounds
+
+    @property
+    def mass_uom(self) -> str:
+        return "lb"
+
+
+class MetricUnits(UnitSystem):
+    def distance_short(self, dist: Distance) -> float:
+        return dist.meters
+
+    def distance_long(self, dist: Distance) -> float:
+        return dist.kilometers
+
+    @property
+    def distance_short_uom(self) -> str:
+        return "m"
+
+    @property
+    def distance_long_uom(self) -> str:
+        return "km"
+
+    def speed(self, speed: Speed) -> float:
+        return speed.kph
+
+    @property
+    def speed_uom(self) -> str:
+        return "kph"
+
+    def mass(self, mass: Mass) -> float:
+        return mass.kgs
+
+    @property
+    def mass_uom(self) -> str:
+        return "kg"
+
+
+class ImperialUnits(UnitSystem):
+    def distance_short(self, dist: Distance) -> float:
+        return dist.feet
+
+    def distance_long(self, dist: Distance) -> float:
+        return dist.miles
+
+    @property
+    def distance_short_uom(self) -> str:
+        return "ft"
+
+    @property
+    def distance_long_uom(self) -> str:
+        return "m"
+
+    def speed(self, speed: Speed) -> float:
+        return speed.mph
+
+    @property
+    def speed_uom(self) -> str:
+        return "mph"
+
+    def mass(self, mass: Mass) -> float:
+        return mass.pounds
+
+    @property
+    def mass_uom(self) -> str:
+        return "lb"
 
 
 @dataclass(frozen=True)
@@ -36,6 +176,14 @@ class Distance:
     @property
     def nautical_miles(self) -> float:
         return self.distance_in_meters * METERS_TO_NM
+
+    @property
+    def kilometers(self) -> float:
+        return self.distance_in_meters / 1000
+
+    @property
+    def miles(self) -> float:
+        return self.distance_in_meters * METERS_TO_MILES
 
     @classmethod
     def from_feet(cls, value: float) -> Distance:
@@ -113,6 +261,10 @@ class Speed:
     @property
     def meters_per_second(self) -> float:
         return self.speed_in_kph * KPH_TO_MS
+
+    @property
+    def mph(self) -> float:
+        return self.speed_in_kph * KPH_TO_MPH
 
     def mach(self, altitude: Distance = meters(0)) -> float:
         c_sound = mach(1, altitude)
@@ -267,6 +419,27 @@ def inches_hg(value: float) -> Pressure:
     return Pressure(value)
 
 
+@dataclass(frozen=True, order=True)
+class Mass:
+    mass_in_kg: float
+
+    @property
+    def pounds(self) -> float:
+        return self.mass_in_kg * KG_TO_LBS
+
+    @property
+    def kgs(self) -> float:
+        return self.mass_in_kg
+
+
+def pounds(value: float) -> Mass:
+    return Mass(value * LBS_TO_KG)
+
+
+def kgs(value: float) -> Mass:
+    return Mass(value)
+
+
 PairwiseT = TypeVar("PairwiseT")
 
 
@@ -290,3 +463,15 @@ def interpolate(value1: float, value2: float, factor: float, clamp: bool) -> flo
         return min(bigger_value, max(smaller_value, interpolated))
     else:
         return interpolated
+
+
+def dcs_to_shapely_point(point: Point) -> ShapelyPoint:
+    return ShapelyPoint(point.x, point.y)
+
+
+def escape_string_for_lua(value: str) -> str:
+    """Escapes special characters from a string.
+    This prevents scripting errors in lua scripts"""
+    value = value.replace('"', "'")  # Replace Double Quote as this is the delimiter
+    value = value.replace(os.sep, "/")  # Replace Backslash as path separator
+    return "{0}".format(value)

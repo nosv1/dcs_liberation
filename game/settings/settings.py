@@ -1,4 +1,4 @@
-from collections import Iterator
+from collections.abc import Iterator
 from dataclasses import Field, dataclass, field, fields
 from datetime import timedelta
 from enum import Enum, unique
@@ -13,6 +13,7 @@ from .choicesoption import choices_option
 from .minutesoption import minutes_option
 from .optiondescription import OptionDescription, SETTING_DESCRIPTION_KEY
 from .skilloption import skill_option
+from ..ato.starttype import StartType
 
 
 @unique
@@ -21,12 +22,6 @@ class AutoAtoBehavior(Enum):
     Never = "Never assign player pilots"
     Default = "No preference"
     Prefer = "Prefer player pilots"
-
-
-class NightMissions(Enum):
-    DayAndNight = "nightmissions_nightandday"
-    OnlyDay = "nightmissions_onlyday"
-    OnlyNight = "nightmissions_onlynight"
 
 
 DIFFICULTY_PAGE = "Difficulty"
@@ -110,16 +105,11 @@ class Settings:
         section=MISSION_DIFFICULTY_SECTION,
         default=True,
     )
-    night_day_missions: NightMissions = choices_option(
-        "Night/day mission options",
+    night_disabled: bool = boolean_option(
+        "No night missions",
         page=DIFFICULTY_PAGE,
         section=MISSION_DIFFICULTY_SECTION,
-        choices={
-            "Generate night and day missions": NightMissions.DayAndNight,
-            "Only generate day missions": NightMissions.OnlyDay,
-            "Only generate night missions": NightMissions.OnlyNight,
-        },
-        default=NightMissions.DayAndNight,
+        default=False,
     )
     # Mission Restrictions
     labels: str = choices_option(
@@ -305,6 +295,46 @@ class Settings:
 
     # Mission Generator
     # Gameplay
+    fast_forward_to_first_contact: bool = boolean_option(
+        "Fast forward mission to first contact (WIP)",
+        page=MISSION_GENERATOR_PAGE,
+        section=GAMEPLAY_SECTION,
+        default=False,
+        detail=(
+            "If enabled, the mission will be generated at the point of first contact."
+        ),
+    )
+    player_mission_interrupts_sim_at: Optional[StartType] = choices_option(
+        "Player missions interrupt fast forward",
+        page=MISSION_GENERATOR_PAGE,
+        section=GAMEPLAY_SECTION,
+        default=None,
+        choices={
+            "Never": None,
+            "At startup time": StartType.COLD,
+            "At taxi time": StartType.WARM,
+            "At takeoff time": StartType.RUNWAY,
+        },
+        detail=(
+            "Determines what player mission states will interrupt fast-forwarding to "
+            "first contact, if enabled. If never is selected player missions will not "
+            "impact simulation and player missions may be generated mid-flight. The "
+            "other options will cause the mission to be generated as soon as a player "
+            "mission reaches the set state or at first contact, whichever comes first."
+        ),
+    )
+    auto_resolve_combat: bool = boolean_option(
+        "Auto-resolve combat during fast-forward (WIP)",
+        page=MISSION_GENERATOR_PAGE,
+        section=GAMEPLAY_SECTION,
+        default=False,
+        detail=(
+            "If enabled, aircraft entering combat during fast forward will have their "
+            "combat auto-resolved after a period of time. This allows the simulation "
+            "to advance further into the mission before requiring mission generation, "
+            "but simulation is currently very rudimentary so may result in huge losses."
+        ),
+    )
     supercarrier: bool = boolean_option(
         "Use supercarrier module",
         MISSION_GENERATOR_PAGE,
@@ -343,12 +373,12 @@ class Settings:
             "option only allows the player to wait on the ground.</strong>"
         ),
     )
-    default_start_type: str = choices_option(
+    default_start_type: StartType = choices_option(
         "Default start type for AI aircraft",
         page=MISSION_GENERATOR_PAGE,
         section=GAMEPLAY_SECTION,
-        choices=["Cold", "Warm", "Runway", "In Flight"],
-        default="Cold",
+        choices={v.value: v for v in StartType},
+        default=StartType.COLD,
         detail=(
             "Warning: Options other than Cold will significantly reduce the number of "
             "targets available for OCA/Aircraft missions, and OCA/Aircraft flights "
@@ -431,6 +461,12 @@ class Settings:
         min=10,
         max=10000,
         causes_expensive_game_update=True,
+    )
+    perf_do_not_cull_threatening_iads: bool = boolean_option(
+        "Do not cull threatening IADS",
+        page=MISSION_GENERATOR_PAGE,
+        section=PERFORMANCE_SECTION,
+        default=True,
     )
     perf_do_not_cull_carrier: bool = boolean_option(
         "Do not cull carrier's surroundings",

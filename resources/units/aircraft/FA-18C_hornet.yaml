@@ -21,6 +21,8 @@ manufacturer: McDonnell Douglas
 origin: USA
 price: 24
 role: Carrier-based Multirole Fighter
+# DCS default livery for the Hornet is the Blue Angels.
+default_livery: "VFA-34"
 fuel:
   # Parking A1 to RWY 32 at Akrotiri.
   taxi: 170
@@ -46,3 +48,8 @@ radios:
     # we must use radio 1 for the intra-flight radio.
     intra_flight_radio_index: 1
     inter_flight_radio_index: 2
+utc_kneeboard: true
+# default_overrides:
+#   HelmetMountedDevice: 1
+#   InnerBoard: 0
+#   OuterBoard: 0

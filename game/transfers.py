@@ -36,20 +36,19 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import singledispatchmethod
-from typing import (
-    Generic,
-    Iterator,
-    List,
-    Optional,
-    TYPE_CHECKING,
-    TypeVar,
-    Sequence,
-)
+from typing import Generic, Iterator, List, Optional, Sequence, TYPE_CHECKING, TypeVar
 
 from dcs.mapping import Point
 
+from game.ato.ai_flight_planner_db import aircraft_for_task
+from game.ato.closestairfields import ObjectiveDistanceCache
+from game.ato.flight import Flight
+from game.ato.flightplans.flightplanbuilder import FlightPlanBuilder
+from game.ato.flighttype import FlightType
+from game.ato.package import Package
 from game.dcs.aircrafttype import AircraftType
 from game.dcs.groundunittype import GroundUnitType
+from game.naming import namegen
 from game.procurement import AircraftProcurementRequest
 from game.theater import ControlPoint, MissionTarget
 from game.theater.transitnetwork import (
@@ -57,12 +56,6 @@ from game.theater.transitnetwork import (
     TransitNetwork,
 )
 from game.utils import meters, nautical_miles
-from gen.ato import Package
-from gen.flights.ai_flight_planner_db import aircraft_for_task
-from gen.flights.closestairfields import ObjectiveDistanceCache
-from gen.flights.flight import Flight, FlightType
-from gen.flights.flightplan import FlightPlanBuilder
-from gen.naming import namegen
 
 if TYPE_CHECKING:
     from game import Game
@@ -270,7 +263,7 @@ class AirliftPlanner:
         self.transfer = transfer
         self.next_stop = next_stop
         self.for_player = transfer.destination.captured
-        self.package = Package(target=next_stop, auto_asap=True)
+        self.package = Package(next_stop, game.db.flights, auto_asap=True)
 
     def compatible_with_mission(
         self, unit_type: AircraftType, airfield: ControlPoint
@@ -642,7 +635,6 @@ class PendingTransfers:
         flight.package.remove_flight(flight)
         if not flight.package.flights:
             self.game.ato_for(self.player).remove_package(flight.package)
-        flight.return_pilots_and_aircraft()
 
     @cancel_transport.register
     def _cancel_transport_convoy(

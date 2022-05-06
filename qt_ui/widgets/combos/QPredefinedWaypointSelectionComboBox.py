@@ -1,10 +1,14 @@
 from PySide2.QtGui import QStandardItem, QStandardItemModel
 
 from game import Game
-from game.theater import ControlPointType, BuildingGroundObject
+from game.ato.flightwaypoint import FlightWaypoint
+from game.ato.flightwaypointtype import FlightWaypointType
+from game.missiongenerator.frontlineconflictdescription import (
+    FrontLineConflictDescription,
+)
+from game.theater.controlpoint import ControlPointType
+from game.theater.theatergroundobject import BuildingGroundObject, IadsGroundObject
 from game.utils import Distance
-from gen.conflictgen import Conflict
-from gen.flights.flight import FlightWaypoint, FlightWaypointType
 from qt_ui.widgets.combos.QFilteredComboBox import QFilteredComboBox
 
 
@@ -64,14 +68,14 @@ class QPredefinedWaypointSelectionComboBox(QFilteredComboBox):
 
         if self.include_frontlines:
             for front_line in self.game.theater.conflicts():
-                pos = Conflict.frontline_position(front_line, self.game.theater)[0]
+                pos = FrontLineConflictDescription.frontline_position(
+                    front_line, self.game.theater
+                )[0]
+                wptname = f"Frontline {front_line.name} [CAS]"
                 wpt = FlightWaypoint(
-                    FlightWaypointType.CUSTOM,
-                    pos.x,
-                    pos.y,
-                    Distance.from_meters(800),
+                    wptname, FlightWaypointType.CUSTOM, pos, Distance.from_meters(800)
                 )
-                wpt.name = f"Frontline {front_line.name} [CAS]"
+
                 wpt.alt_type = "RADIO"
                 wpt.pretty_name = wpt.name
                 wpt.description = "Frontline"
@@ -87,13 +91,12 @@ class QPredefinedWaypointSelectionComboBox(QFilteredComboBox):
                             ground_object, BuildingGroundObject
                         ):
                             wpt = FlightWaypoint(
+                                ground_object.waypoint_name,
                                 FlightWaypointType.CUSTOM,
-                                ground_object.position.x,
-                                ground_object.position.y,
+                                ground_object.position,
                                 Distance.from_meters(0),
                             )
                             wpt.alt_type = "RADIO"
-                            wpt.name = ground_object.waypoint_name
                             wpt.pretty_name = wpt.name
                             wpt.obj_name = ground_object.obj_name
                             wpt.targets.append(ground_object)
@@ -110,34 +113,33 @@ class QPredefinedWaypointSelectionComboBox(QFilteredComboBox):
                 ):
                     for ground_object in cp.ground_objects:
                         if not ground_object.is_dead and (
-                            ground_object.dcs_identifier == "AA"
-                            or ground_object.dcs_identifier == "EWR"
+                            isinstance(ground_object, IadsGroundObject)
                         ):
                             for g in ground_object.groups:
                                 for j, u in enumerate(g.units):
-                                    wpt = FlightWaypoint(
-                                        FlightWaypointType.CUSTOM,
-                                        u.position.x,
-                                        u.position.y,
-                                        Distance.from_meters(0),
-                                    )
-                                    wpt.alt_type = "RADIO"
-                                    wpt.name = wpt.name = (
+                                    wptname = (
                                         "["
                                         + str(ground_object.obj_name)
                                         + "] : "
-                                        + u.type
+                                        + u.name
                                         + " #"
                                         + str(j)
                                     )
-                                    wpt.pretty_name = wpt.name
+                                    wpt = FlightWaypoint(
+                                        wptname,
+                                        FlightWaypointType.CUSTOM,
+                                        u.position,
+                                        Distance.from_meters(0),
+                                    )
+                                    wpt.alt_type = "RADIO"
+                                    wpt.pretty_name = wptname
                                     wpt.targets.append(u)
                                     wpt.obj_name = ground_object.obj_name
                                     wpt.waypoint_type = FlightWaypointType.CUSTOM
                                     if cp.captured:
-                                        wpt.description = "Friendly unit : " + u.type
+                                        wpt.description = "Friendly unit: " + u.name
                                     else:
-                                        wpt.description = "Enemy unit : " + u.type
+                                        wpt.description = "Enemy unit: " + u.name
                                     i = add_model_item(i, model, wpt.pretty_name, wpt)
 
         if self.include_airbases:
@@ -146,13 +148,12 @@ class QPredefinedWaypointSelectionComboBox(QFilteredComboBox):
                     self.include_friendly and cp.captured
                 ):
                     wpt = FlightWaypoint(
+                        cp.name,
                         FlightWaypointType.CUSTOM,
-                        cp.position.x,
-                        cp.position.y,
+                        cp.position,
                         Distance.from_meters(0),
                     )
                     wpt.alt_type = "RADIO"
-                    wpt.name = cp.name
                     if cp.captured:
                         wpt.description = (
                             "Position of " + cp.name + " [Friendly Airbase]"

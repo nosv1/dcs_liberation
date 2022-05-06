@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from collections import Sequence
-from typing import Iterator, TYPE_CHECKING, List, Union
+from collections.abc import Sequence
+from typing import Iterator, TYPE_CHECKING, Union
 
 from dcs.mapping import Point
 from dcs.unit import Unit
 
 if TYPE_CHECKING:
-    from gen.flights.flight import FlightType
+    from game.ato.flighttype import FlightType
+    from game.theater import TheaterUnit
 
 
 class MissionTarget:
@@ -30,7 +31,7 @@ class MissionTarget:
         raise NotImplementedError
 
     def mission_types(self, for_player: bool) -> Iterator[FlightType]:
-        from gen.flights.flight import FlightType
+        from game.ato import FlightType
 
         if self.is_friendly(for_player):
             yield FlightType.BARCAP
@@ -46,5 +47,5 @@ class MissionTarget:
             ]
 
     @property
-    def strike_targets(self) -> Sequence[Union[MissionTarget, Unit]]:
+    def strike_targets(self) -> list[TheaterUnit]:
         return []

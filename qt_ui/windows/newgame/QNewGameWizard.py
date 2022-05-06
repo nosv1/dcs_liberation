@@ -1,17 +1,16 @@
 from __future__ import unicode_literals
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List
 
 from PySide2 import QtGui, QtWidgets
-from PySide2.QtCore import QDate, QItemSelectionModel, QPoint, Qt
+from PySide2.QtCore import QDate, QItemSelectionModel, QPoint, Qt, Signal
 from PySide2.QtWidgets import QCheckBox, QLabel, QTextEdit, QVBoxLayout
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from game import db
-from game.campaignloader.campaign import Campaign
-from game.factions.faction import Faction
+from game.campaignloader.campaign import Campaign, DEFAULT_BUDGET
+from game.factions import FACTIONS, Faction
 from game.settings import Settings
 from game.theater.start_generator import GameGenerator, GeneratorSettings, ModSettings
 from qt_ui.widgets.QLiberationCalendar import QLiberationCalendar
@@ -30,8 +29,53 @@ jinja_env = Environment(
     lstrip_blocks=True,
 )
 
-DEFAULT_BUDGET = 2000
 DEFAULT_MISSION_LENGTH: timedelta = timedelta(minutes=60)
+
+
+"""
+Possible time periods for new games
+
+    `Name`: daytime(day, month, year),
+
+`Identifier` is the name that will appear in the menu
+The object is a python datetime object
+"""
+TIME_PERIODS = {
+    "WW2 - Winter [1944]": datetime(1944, 1, 1),
+    "WW2 - Spring [1944]": datetime(1944, 4, 1),
+    "WW2 - Summer [1944]": datetime(1944, 6, 1),
+    "WW2 - Fall [1944]": datetime(1944, 10, 1),
+    "Early Cold War - Winter [1952]": datetime(1952, 1, 1),
+    "Early Cold War - Spring [1952]": datetime(1952, 4, 1),
+    "Early Cold War - Summer [1952]": datetime(1952, 6, 1),
+    "Early Cold War - Fall [1952]": datetime(1952, 10, 1),
+    "Cold War - Winter [1970]": datetime(1970, 1, 1),
+    "Cold War - Spring [1970]": datetime(1970, 4, 1),
+    "Cold War - Summer [1970]": datetime(1970, 6, 1),
+    "Cold War - Fall [1970]": datetime(1970, 10, 1),
+    "Late Cold War - Winter [1985]": datetime(1985, 1, 1),
+    "Late Cold War - Spring [1985]": datetime(1985, 4, 1),
+    "Late Cold War - Summer [1985]": datetime(1985, 6, 1),
+    "Late Cold War - Fall [1985]": datetime(1985, 10, 1),
+    "Gulf War - Winter [1990]": datetime(1990, 1, 1),
+    "Gulf War - Spring [1990]": datetime(1990, 4, 1),
+    "Gulf War - Summer [1990]": datetime(1990, 6, 1),
+    "Mid-90s - Winter [1995]": datetime(1995, 1, 1),
+    "Mid-90s - Spring [1995]": datetime(1995, 4, 1),
+    "Mid-90s - Summer [1995]": datetime(1995, 6, 1),
+    "Mid-90s - Fall [1995]": datetime(1995, 10, 1),
+    "Gulf War - Fall [1990]": datetime(1990, 10, 1),
+    "Modern - Winter [2010]": datetime(2010, 1, 1),
+    "Modern - Spring [2010]": datetime(2010, 4, 1),
+    "Modern - Summer [2010]": datetime(2010, 6, 1),
+    "Modern - Fall [2010]": datetime(2010, 10, 1),
+    "Georgian War [2008]": datetime(2008, 8, 7),
+    "Syrian War [2011]": datetime(2011, 3, 15),
+    "6 days war [1967]": datetime(1967, 6, 5),
+    "Yom Kippour War [1973]": datetime(1973, 10, 6),
+    "First Lebanon War [1982]": datetime(1982, 6, 6),
+    "Arab-Israeli War [1948]": datetime(1948, 5, 15),
+}
 
 
 class NewGameWizard(QtWidgets.QWizard):
@@ -48,7 +92,13 @@ class NewGameWizard(QtWidgets.QWizard):
         self.addPage(self.theater_page)
         self.addPage(self.faction_selection_page)
         self.addPage(GeneratorOptions())
-        self.addPage(DifficultyAndAutomationOptions())
+        self.difficulty_page = DifficultyAndAutomationOptions()
+
+        # Update difficulty page on campaign select
+        self.theater_page.campaign_selected.connect(
+            lambda c: self.difficulty_page.set_campaign_values(c)
+        )
+        self.addPage(self.difficulty_page)
         self.addPage(ConclusionPage())
 
         self.setPixmap(
@@ -73,8 +123,8 @@ class NewGameWizard(QtWidgets.QWizard):
         logging.info("New campaign selected: %s", campaign.name)
 
         if self.field("usePreset"):
-            start_date = db.TIME_PERIODS[
-                list(db.TIME_PERIODS.keys())[self.field("timePeriod")]
+            start_date = TIME_PERIODS[
+                list(TIME_PERIODS.keys())[self.field("timePeriod")]
             ]
         else:
             start_date = self.theater_page.calendar.selectedDate().toPython()
@@ -100,6 +150,7 @@ class NewGameWizard(QtWidgets.QWizard):
             # QSlider forces integers, so we use 1 to 50 and divide by 10 to
             # give 0.1 to 5.0.
             inverted=self.field("invertMap"),
+            advanced_iads=self.field("advanced_iads"),
             no_carrier=self.field("no_carrier"),
             no_lha=self.field("no_lha"),
             no_player_navy=self.field("no_player_navy"),
@@ -123,7 +174,7 @@ class NewGameWizard(QtWidgets.QWizard):
         logging.info("New campaign blue faction: %s", blue_faction.name)
         logging.info("New campaign red faction: %s", red_faction.name)
 
-        theater = campaign.load_theater()
+        theater = campaign.load_theater(generator_settings.advanced_iads)
 
         logging.info("New campaign theater: %s", theater.terrain.name)
 
@@ -189,7 +240,7 @@ class FactionSelection(QtWidgets.QWizardPage):
 
         blueFaction = QtWidgets.QLabel("<b>Player Faction :</b>")
         self.blueFactionSelect = QtWidgets.QComboBox()
-        for f in db.FACTIONS:
+        for f in FACTIONS:
             self.blueFactionSelect.addItem(f)
         blueFaction.setBuddy(self.blueFactionSelect)
 
@@ -205,7 +256,7 @@ class FactionSelection(QtWidgets.QWizardPage):
         self.redFactionDescription.setReadOnly(True)
 
         # Setup default selected factions
-        for i, r in enumerate(db.FACTIONS):
+        for i, r in enumerate(FACTIONS):
             self.redFactionSelect.addItem(r)
             if r == "Russia 1990":
                 self.redFactionSelect.setCurrentIndex(i)
@@ -251,10 +302,10 @@ class FactionSelection(QtWidgets.QWizardPage):
         self.blueFactionSelect.clear()
         self.redFactionSelect.clear()
 
-        for f in db.FACTIONS:
+        for f in FACTIONS:
             self.blueFactionSelect.addItem(f)
 
-        for i, r in enumerate(db.FACTIONS):
+        for i, r in enumerate(FACTIONS):
             self.redFactionSelect.addItem(r)
             if r == campaign.recommended_enemy_faction:
                 self.redFactionSelect.setCurrentIndex(i)
@@ -265,8 +316,8 @@ class FactionSelection(QtWidgets.QWizardPage):
 
     def updateUnitRecap(self):
 
-        red_faction = db.FACTIONS[self.redFactionSelect.currentText()]
-        blue_faction = db.FACTIONS[self.blueFactionSelect.currentText()]
+        red_faction = FACTIONS[self.redFactionSelect.currentText()]
+        blue_faction = FACTIONS[self.blueFactionSelect.currentText()]
 
         template = jinja_env.get_template("factiontemplate_EN.j2")
 
@@ -278,14 +329,16 @@ class FactionSelection(QtWidgets.QWizardPage):
 
     @property
     def selected_blue_faction(self) -> Faction:
-        return db.FACTIONS[self.blueFactionSelect.currentText()]
+        return FACTIONS[self.blueFactionSelect.currentText()]
 
     @property
     def selected_red_faction(self) -> Faction:
-        return db.FACTIONS[self.redFactionSelect.currentText()]
+        return FACTIONS[self.redFactionSelect.currentText()]
 
 
 class TheaterConfiguration(QtWidgets.QWizardPage):
+    campaign_selected = Signal(Campaign)
+
     def __init__(
         self,
         campaigns: List[Campaign],
@@ -332,11 +385,15 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
 
         # Campaign settings
         mapSettingsGroup = QtWidgets.QGroupBox("Map Settings")
+        mapSettingsLayout = QtWidgets.QGridLayout()
         invertMap = QtWidgets.QCheckBox()
         self.registerField("invertMap", invertMap)
-        mapSettingsLayout = QtWidgets.QGridLayout()
         mapSettingsLayout.addWidget(QtWidgets.QLabel("Invert Map"), 0, 0)
         mapSettingsLayout.addWidget(invertMap, 0, 1)
+        self.advanced_iads = QtWidgets.QCheckBox()
+        self.registerField("advanced_iads", self.advanced_iads)
+        mapSettingsLayout.addWidget(QtWidgets.QLabel("Advanced IADS"), 1, 0)
+        mapSettingsLayout.addWidget(self.advanced_iads, 1, 1)
         mapSettingsGroup.setLayout(mapSettingsLayout)
 
         # Time Period
@@ -352,12 +409,12 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
 
         def onTimePeriodChanged():
             self.calendar.setSelectedDate(
-                list(db.TIME_PERIODS.values())[timePeriodSelect.currentIndex()]
+                list(TIME_PERIODS.values())[timePeriodSelect.currentIndex()]
             )
 
         timePeriodSelect.currentTextChanged.connect(onTimePeriodChanged)
 
-        for r in db.TIME_PERIODS:
+        for r in TIME_PERIODS:
             timePeriodSelect.addItem(r)
         timePeriod.setBuddy(timePeriodSelect)
         timePeriodSelect.setCurrentIndex(21)
@@ -399,6 +456,16 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
                 timePeriodPreset.setChecked(False)
             else:
                 timePeriodPreset.setChecked(True)
+            self.advanced_iads.setEnabled(campaign.advanced_iads)
+            self.advanced_iads.setChecked(campaign.advanced_iads)
+            if not campaign.advanced_iads:
+                self.advanced_iads.setToolTip(
+                    "Advanced IADS is not supported by this campaign"
+                )
+            else:
+                self.advanced_iads.setToolTip("Enable Advanced IADS")
+
+            self.campaign_selected.emit(campaign)
 
         self.campaignList.selectionModel().setCurrentIndex(
             self.campaignList.indexAt(QPoint(1, 1)), QItemSelectionModel.Rows
@@ -444,19 +511,18 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
 
 
 class BudgetInputs(QtWidgets.QGridLayout):
-    def __init__(self, label: str) -> None:
+    def __init__(self, label: str, value: int) -> None:
         super().__init__()
         self.addWidget(QtWidgets.QLabel(label), 0, 0)
 
         minimum = 0
         maximum = 5000
-        initial = DEFAULT_BUDGET
 
         slider = QtWidgets.QSlider(Qt.Horizontal)
         slider.setMinimum(minimum)
         slider.setMaximum(maximum)
-        slider.setValue(initial)
-        self.starting_money = CurrencySpinner(minimum, maximum, initial)
+        slider.setValue(value)
+        self.starting_money = CurrencySpinner(minimum, maximum, value)
         slider.valueChanged.connect(lambda x: self.starting_money.setValue(x))
         self.starting_money.valueChanged.connect(lambda x: slider.setValue(x))
 
@@ -485,22 +551,22 @@ class DifficultyAndAutomationOptions(QtWidgets.QWizardPage):
         economy_group.setLayout(economy_layout)
 
         economy_layout.addWidget(QLabel("Player income multiplier"))
-        player_income = FloatSpinSlider(0, 5, 1, divisor=10)
-        self.registerField("player_income_multiplier", player_income.spinner)
-        economy_layout.addLayout(player_income)
+        self.player_income = FloatSpinSlider(0, 5, 1, divisor=10)
+        self.registerField("player_income_multiplier", self.player_income.spinner)
+        economy_layout.addLayout(self.player_income)
 
         economy_layout.addWidget(QLabel("Enemy income multiplier"))
-        enemy_income = FloatSpinSlider(0, 5, 1, divisor=10)
-        self.registerField("enemy_income_multiplier", enemy_income.spinner)
-        economy_layout.addLayout(enemy_income)
+        self.enemy_income = FloatSpinSlider(0, 5, 1, divisor=10)
+        self.registerField("enemy_income_multiplier", self.enemy_income.spinner)
+        economy_layout.addLayout(self.enemy_income)
 
-        player_budget = BudgetInputs("Player starting budget")
-        self.registerField("starting_money", player_budget.starting_money)
-        economy_layout.addLayout(player_budget)
+        self.player_budget = BudgetInputs("Player starting budget", DEFAULT_BUDGET)
+        self.registerField("starting_money", self.player_budget.starting_money)
+        economy_layout.addLayout(self.player_budget)
 
-        enemy_budget = BudgetInputs("Enemy starting budget")
-        self.registerField("enemy_starting_money", enemy_budget.starting_money)
-        economy_layout.addLayout(enemy_budget)
+        self.enemy_budget = BudgetInputs("Enemy starting budget", DEFAULT_BUDGET)
+        self.registerField("enemy_starting_money", self.enemy_budget.starting_money)
+        economy_layout.addLayout(self.enemy_budget)
 
         assist_group = QtWidgets.QGroupBox("Player assists")
         layout.addWidget(assist_group)
@@ -523,6 +589,16 @@ class DifficultyAndAutomationOptions(QtWidgets.QWizardPage):
         assist_layout.addWidget(aircraft, 2, 1, Qt.AlignRight)
 
         self.setLayout(layout)
+
+    def set_campaign_values(self, campaign: Campaign) -> None:
+        self.player_budget.starting_money.setValue(campaign.recommended_player_money)
+        self.enemy_budget.starting_money.setValue(campaign.recommended_enemy_money)
+        self.player_income.spinner.setValue(
+            int(campaign.recommended_player_income_multiplier * 10)
+        )
+        self.enemy_income.spinner.setValue(
+            int(campaign.recommended_enemy_income_multiplier * 10)
+        )
 
 
 class GeneratorOptions(QtWidgets.QWizardPage):

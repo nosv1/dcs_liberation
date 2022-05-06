@@ -7,8 +7,8 @@ from datetime import timedelta
 from typing import Iterator, Dict, TYPE_CHECKING
 
 from game.theater import MissionTarget
-from gen.flights.flight import FlightType
-from gen.flights.traveltime import TotEstimator
+from game.ato.flighttype import FlightType
+from game.ato.traveltime import TotEstimator
 
 if TYPE_CHECKING:
     from game.coalition import Coalition

@@ -9,15 +9,19 @@ from PySide2.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from dcs.ships import Stennis, KUZNECOW
 
-from game import Game, db
+from game import Game
+from game.ato.flighttype import FlightType
+from game.config import RUNWAY_REPAIR_COST
+from game.server import EventStream
+from game.sim import GameUpdateEvents
 from game.theater import (
+    AMMO_DEPOT_FRONTLINE_UNIT_CONTRIBUTION,
     ControlPoint,
     ControlPointType,
     FREE_FRONTLINE_UNIT_SUPPLY,
-    AMMO_DEPOT_FRONTLINE_UNIT_CONTRIBUTION,
 )
-from gen.flights.flight import FlightType
 from qt_ui.dialogs import Dialog
 from qt_ui.models import GameModel
 from qt_ui.uiconstants import EVENT_ICONS
@@ -35,12 +39,6 @@ class QBaseMenu2(QDialog):
         self.cp = cp
         self.game_model = game_model
         self.objectName = "menuDialogue"
-
-        try:
-            game = self.game_model.game
-            self.airport = game.theater.terrain.airport_by_id(self.cp.id)
-        except:
-            self.airport = None
 
         if self.cp.captured:
             self.deliveryEvent = None
@@ -121,10 +119,12 @@ class QBaseMenu2(QDialog):
         return self.game_model.game.settings.enable_base_capture_cheat
 
     def cheat_capture(self) -> None:
-        self.cp.capture(self.game_model.game, for_player=not self.cp.captured)
+        events = GameUpdateEvents()
+        self.cp.capture(self.game_model.game, events, for_player=not self.cp.captured)
         # Reinitialized ground planners and the like. The ATO needs to be reset because
         # missions planned against the flipped base are no longer valid.
-        self.game_model.game.initialize_turn()
+        self.game_model.game.initialize_turn(events)
+        EventStream.put_nowait(events)
         GameUpdateSignal.get_instance().updateGame(self.game_model.game)
 
     @property
@@ -139,14 +139,14 @@ class QBaseMenu2(QDialog):
 
     @property
     def can_afford_runway_repair(self) -> bool:
-        return self.game_model.game.blue.budget >= db.RUNWAY_REPAIR_COST
+        return self.game_model.game.blue.budget >= RUNWAY_REPAIR_COST
 
     def begin_runway_repair(self) -> None:
         if not self.can_afford_runway_repair:
             QMessageBox.critical(
                 self,
                 "Cannot repair runway",
-                f"Runway repair costs ${db.RUNWAY_REPAIR_COST}M but you have "
+                f"Runway repair costs ${RUNWAY_REPAIR_COST}M but you have "
                 f"only ${self.game_model.game.blue.budget}M available.",
                 QMessageBox.Ok,
             )
@@ -161,7 +161,7 @@ class QBaseMenu2(QDialog):
             return
 
         self.cp.begin_runway_repair()
-        self.game_model.game.blue.budget -= db.RUNWAY_REPAIR_COST
+        self.game_model.game.blue.budget -= RUNWAY_REPAIR_COST
         self.update_repair_button()
         self.update_intel_summary()
         GameUpdateSignal.get_instance().updateGame(self.game_model.game)
@@ -176,12 +176,12 @@ class QBaseMenu2(QDialog):
 
         if self.can_repair_runway:
             if self.can_afford_runway_repair:
-                self.repair_button.setText(f"Repair ${db.RUNWAY_REPAIR_COST}M")
+                self.repair_button.setText(f"Repair ${RUNWAY_REPAIR_COST}M")
                 self.repair_button.setDisabled(False)
                 return
             else:
                 self.repair_button.setText(
-                    f"Cannot afford repair ${db.RUNWAY_REPAIR_COST}M"
+                    f"Cannot afford repair ${RUNWAY_REPAIR_COST}M"
                 )
                 self.repair_button.setDisabled(True)
                 return
@@ -241,10 +241,12 @@ class QBaseMenu2(QDialog):
         GameUpdateSignal.get_instance().updateGame(self.game_model.game)
 
     def get_base_image(self):
-        if self.cp.cptype == ControlPointType.AIRCRAFT_CARRIER_GROUP:
-            return "./resources/ui/carrier.png"
-        elif self.cp.cptype == ControlPointType.LHA_GROUP:
-            return "./resources/ui/lha.png"
+        if (
+            self.cp.cptype == ControlPointType.AIRCRAFT_CARRIER_GROUP
+            or self.cp.cptype == ControlPointType.LHA_GROUP
+        ):
+            carrier_type = self.cp.get_carrier_group_type(always_supercarrier=True)
+            return f"./resources/ui/units/ships/{carrier_type.id}.png"
         elif self.cp.cptype == ControlPointType.FOB and self.cp.has_helipads:
             return "./resources/ui/heliport.png"
         elif self.cp.cptype == ControlPointType.FOB:

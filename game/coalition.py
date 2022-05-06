@@ -1,30 +1,31 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
-from dcs import Point
 from faker import Faker
 
-from game.campaignloader import CampaignAirWingConfig
+from game.armedforces.armedforces import ArmedForces
+from game.ato.airtaaskingorder import AirTaskingOrder
 from game.campaignloader.defaultsquadronassigner import DefaultSquadronAssigner
 from game.commander import TheaterCommander
 from game.commander.missionscheduler import MissionScheduler
 from game.income import Income
 from game.navmesh import NavMesh
 from game.orderedset import OrderedSet
-from game.profiling import logged_duration, MultiEventTracer
+from game.procurement import AircraftProcurementRequest, ProcurementAi
+from game.profiling import MultiEventTracer, logged_duration
 from game.squadrons import AirWing
+from game.theater.bullseye import Bullseye
+from game.theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
 from game.threatzones import ThreatZones
 from game.transfers import PendingTransfers
 
 if TYPE_CHECKING:
-    from game import Game
-from game.data.doctrine import Doctrine
-from game.factions.faction import Faction
-from game.procurement import AircraftProcurementRequest, ProcurementAi
-from game.theater.bullseye import Bullseye
-from game.theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
-from gen.ato import AirTaskingOrder
+    from .campaignloader import CampaignAirWingConfig
+    from .data.doctrine import Doctrine
+    from .factions.faction import Faction
+    from .game import Game
+    from .sim import GameUpdateEvents
 
 
 class Coalition:
@@ -38,9 +39,10 @@ class Coalition:
         self.ato = AirTaskingOrder()
         self.transit_network = TransitNetwork()
         self.procurement_requests: OrderedSet[AircraftProcurementRequest] = OrderedSet()
-        self.bullseye = Bullseye(Point(0, 0))
+        self.bullseye = Bullseye(self.game.point_in_world(0, 0))
         self.faker = Faker(self.faction.locales)
         self.air_wing = AirWing(player, game, self.faction)
+        self.armed_forces = ArmedForces(self.faction)
         self.transfers = PendingTransfers(game, player)
 
         # Late initialized because the two coalitions in the game are mutually
@@ -117,13 +119,15 @@ class Coalition:
     def adjust_budget(self, amount: float) -> None:
         self.budget += amount
 
-    def compute_threat_zones(self) -> None:
+    def compute_threat_zones(self, events: GameUpdateEvents) -> None:
         self._threat_zone = ThreatZones.for_faction(self.game, self.player)
+        events.update_threat_zones()
 
-    def compute_nav_meshes(self) -> None:
+    def compute_nav_meshes(self, events: GameUpdateEvents) -> None:
         self._navmesh = NavMesh.from_threat_zones(
             self.opponent.threat_zone, self.game.theater
         )
+        events.update_navmesh(self.player)
 
     def update_transit_network(self) -> None:
         self.transit_network = TransitNetworkBuilder(

@@ -2,24 +2,25 @@ from __future__ import annotations
 
 import math
 import operator
-from collections import Iterator, Iterable
-from typing import TypeVar, TYPE_CHECKING
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, TypeVar
 
 from game.theater import (
+    Airfield,
     ControlPoint,
-    OffMapSpawn,
-    MissionTarget,
     Fob,
     FrontLine,
-    Airfield,
+    MissionTarget,
+    OffMapSpawn,
 )
 from game.theater.theatergroundobject import (
     BuildingGroundObject,
     IadsGroundObject,
     NavalGroundObject,
+    IadsBuildingGroundObject,
 )
 from game.utils import meters, nautical_miles
-from gen.flights.closestairfields import ObjectiveDistanceCache, ClosestAirfields
+from game.ato.closestairfields import ClosestAirfields, ObjectiveDistanceCache
 
 if TYPE_CHECKING:
     from game import Game
@@ -112,6 +113,13 @@ class ObjectiveFinder:
                     # This is the FOB structure itself. Can't be repaired or
                     # targeted by the player, so shouldn't be targetable by the
                     # AI.
+                    continue
+
+                if isinstance(
+                    ground_object, IadsBuildingGroundObject
+                ) and not self.game.settings.plugin_option("skynetiads"):
+                    # Prevent strike targets on IADS Buildings when skynet features
+                    # are disabled as they do not serve any purpose
                     continue
 
                 if ground_object.is_dead:

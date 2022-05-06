@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
 from game.commander.theaterstate import TheaterState
 from game.theater import ControlPoint
-from gen.flights.flight import FlightType
+from game.ato.flighttype import FlightType
 
 
 @dataclass

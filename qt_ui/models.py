@@ -12,13 +12,18 @@ from PySide2.QtCore import (
 )
 from PySide2.QtGui import QIcon
 
+from game.ato.airtaaskingorder import AirTaskingOrder
+from game.ato.flight import Flight
+from game.ato.flighttype import FlightType
+from game.ato.package import Package
+from game.ato.traveltime import TotEstimator
 from game.game import Game
+from game.server import EventStream
+from game.sim.gameupdateevents import GameUpdateEvents
 from game.squadrons.squadron import Pilot, Squadron
 from game.theater.missiontarget import MissionTarget
-from game.transfers import TransferOrder, PendingTransfers
-from gen.ato import AirTaskingOrder, Package
-from gen.flights.flight import Flight, FlightType
-from gen.flights.traveltime import TotEstimator
+from game.transfers import PendingTransfers, TransferOrder
+from qt_ui.simcontroller import SimController
 from qt_ui.uiconstants import AIRCRAFT_ICONS
 
 
@@ -114,6 +119,7 @@ class PackageModel(QAbstractListModel):
         super().__init__()
         self.package = package
         self.game_model = game_model
+        self.game_model.sim_controller.sim_update.connect(self.on_sim_update)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self.package.flights)
@@ -155,17 +161,22 @@ class PackageModel(QAbstractListModel):
         # flight plan yet. Will be called manually by the caller.
         self.endInsertRows()
 
-    def delete_flight_at_index(self, index: QModelIndex) -> None:
+    def cancel_or_abort_flight_at_index(self, index: QModelIndex) -> None:
         """Removes the flight at the given index from the package."""
-        self.delete_flight(self.flight_at_index(index))
+        self.cancel_or_abort_flight(self.flight_at_index(index))
+
+    def cancel_or_abort_flight(self, flight: Flight) -> None:
+        if flight.state.cancelable:
+            self.delete_flight(flight)
+            EventStream.put_nowait(GameUpdateEvents().delete_flight(flight))
+        else:
+            flight.abort()
+            EventStream.put_nowait(GameUpdateEvents().update_flight(flight))
 
     def delete_flight(self, flight: Flight) -> None:
         """Removes the given flight from the package."""
         index = self.package.flights.index(flight)
         self.beginRemoveRows(QModelIndex(), index, index)
-        if flight.cargo is not None:
-            flight.cargo.transport = None
-        flight.return_pilots_and_aircraft()
         self.package.remove_flight(flight)
         self.endRemoveRows()
         self.update_tot()
@@ -207,6 +218,9 @@ class PackageModel(QAbstractListModel):
         for flight in self.package.flights:
             yield flight
 
+    def on_sim_update(self, _events: GameUpdateEvents) -> None:
+        self.dataChanged.emit(self.index(0), self.index(self.rowCount()))
+
 
 class AtoModel(QAbstractListModel):
     """The model for an AirTaskingOrder."""
@@ -221,6 +235,7 @@ class AtoModel(QAbstractListModel):
         self.game_model = game_model
         self.ato = ato
         self.package_models = DeletableChildModelManager(PackageModel, game_model)
+        self.game_model.sim_controller.sim_update.connect(self.on_sim_update)
 
     @property
     def game(self) -> Optional[Game]:
@@ -243,25 +258,39 @@ class AtoModel(QAbstractListModel):
         """Adds a package to the ATO."""
         self.beginInsertRows(QModelIndex(), self.rowCount(), self.rowCount())
         self.ato.add_package(package)
+        # We do not need to send events for new flights in the package here. Events were
+        # already sent when the flights were added to the in-progress package.
         self.endInsertRows()
         # noinspection PyUnresolvedReferences
         self.client_slots_changed.emit()
         self.on_packages_changed()
 
-    def delete_package_at_index(self, index: QModelIndex) -> None:
+    def cancel_or_abort_package_at_index(self, index: QModelIndex) -> None:
         """Removes the package at the given index from the ATO."""
-        self.delete_package(self.package_at_index(index))
+        self.cancel_or_abort_package(self.package_at_index(index))
 
-    def delete_package(self, package: Package) -> None:
+    def cancel_or_abort_package(self, package: Package) -> None:
+        with EventStream.event_context() as events:
+            if all(f.state.cancelable for f in package.flights):
+                events.delete_flights_in_package(package)
+                self._delete_package(package)
+                return
+
+            package_model = self.find_matching_package_model(package)
+            for flight in package.flights:
+                if flight.state.cancelable:
+                    package_model.delete_flight(flight)
+                    events.delete_flight(flight)
+                else:
+                    flight.abort()
+                    events.update_flight(flight)
+
+    def _delete_package(self, package: Package) -> None:
         """Removes the given package from the ATO."""
         self.package_models.release(package)
         index = self.ato.packages.index(package)
         self.beginRemoveRows(QModelIndex(), index, index)
         self.ato.remove_package(package)
-        for flight in package.flights:
-            flight.return_pilots_and_aircraft()
-            if flight.cargo is not None:
-                flight.cargo.transport = None
         self.endRemoveRows()
         # noinspection PyUnresolvedReferences
         self.client_slots_changed.emit()
@@ -270,7 +299,7 @@ class AtoModel(QAbstractListModel):
     def on_packages_changed(self) -> None:
         if self.game is not None:
             self.game.compute_unculled_zones()
-            self.packages_changed.emit()
+            EventStream.put_nowait(GameUpdateEvents().update_unculled_zones())
 
     def package_at_index(self, index: QModelIndex) -> Package:
         """Returns the package at the given index."""
@@ -310,6 +339,9 @@ class AtoModel(QAbstractListModel):
         """Iterates over all the packages in the ATO."""
         for package in self.ato.packages:
             yield self.package_models.acquire(package)
+
+    def on_sim_update(self, _events: GameUpdateEvents) -> None:
+        self.dataChanged.emit(self.index(0), self.index(self.rowCount()))
 
 
 class TransferModel(QAbstractListModel):
@@ -489,8 +521,9 @@ class GameModel:
     its ATO objects.
     """
 
-    def __init__(self, game: Optional[Game]) -> None:
+    def __init__(self, game: Optional[Game], sim_controller: SimController) -> None:
         self.game: Optional[Game] = game
+        self.sim_controller = sim_controller
         self.transfer_model = TransferModel(self)
         self.blue_air_wing_model = AirWingModel(self, player=True)
         if self.game is None:
@@ -516,3 +549,8 @@ class GameModel:
         self.game = game
         self.ato_model.replace_from_game(player=True)
         self.red_ato_model.replace_from_game(player=False)
+
+    def get(self) -> Game:
+        if self.game is None:
+            raise RuntimeError("GameModel has no Game set")
+        return self.game

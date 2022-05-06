@@ -1,13 +1,23 @@
 import inspect
 import dcs
 
+REQUIRED_BUILDINGS = [
+    "ammo",
+    "factory",
+    "fob",
+]
+
+IADS_BUILDINGS = [
+    "comms",
+    "power",
+    "commandcenter",
+]
+
 DEFAULT_AVAILABLE_BUILDINGS = [
     "fuel",
-    "comms",
     "oil",
     "ware",
     "farp",
-    "power",
     "derrick",
 ]
 

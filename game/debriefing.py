@@ -1,48 +1,45 @@
 from __future__ import annotations
 
 import itertools
-import json
 import logging
-import os
-import threading
-import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    Callable,
     Dict,
     Iterator,
     List,
     TYPE_CHECKING,
     Union,
 )
+from uuid import UUID
 
 from game.dcs.aircrafttype import AircraftType
 from game.dcs.groundunittype import GroundUnitType
 from game.theater import Airfield, ControlPoint
-from game.transfers import CargoShip
-from game.unitmap import (
-    AirliftUnits,
-    Building,
-    ConvoyUnit,
-    FrontLineUnit,
-    GroundObjectUnit,
-    UnitMap,
-    FlyingUnit,
-)
-from gen.flights.flight import Flight
 
 if TYPE_CHECKING:
     from game import Game
+    from game.ato.flight import Flight
+    from game.sim.simulationresults import SimulationResults
+    from game.transfers import CargoShip
+    from game.unitmap import (
+        AirliftUnits,
+        ConvoyUnit,
+        FlyingUnit,
+        FrontLineUnit,
+        TheaterUnitMapping,
+        UnitMap,
+        SceneryObjectMapping,
+    )
 
 DEBRIEFING_LOG_EXTENSION = "log"
 
 
 @dataclass(frozen=True)
 class AirLosses:
-    player: List[FlyingUnit]
-    enemy: List[FlyingUnit]
+    player: list[FlyingUnit]
+    enemy: list[FlyingUnit]
 
     @property
     def losses(self) -> Iterator[FlyingUnit]:
@@ -77,11 +74,11 @@ class GroundLosses:
     player_airlifts: List[AirliftUnits] = field(default_factory=list)
     enemy_airlifts: List[AirliftUnits] = field(default_factory=list)
 
-    player_ground_objects: List[GroundObjectUnit[Any]] = field(default_factory=list)
-    enemy_ground_objects: List[GroundObjectUnit[Any]] = field(default_factory=list)
+    player_ground_objects: List[TheaterUnitMapping] = field(default_factory=list)
+    enemy_ground_objects: List[TheaterUnitMapping] = field(default_factory=list)
 
-    player_buildings: List[Building] = field(default_factory=list)
-    enemy_buildings: List[Building] = field(default_factory=list)
+    player_scenery: List[SceneryObjectMapping] = field(default_factory=list)
+    enemy_scenery: List[SceneryObjectMapping] = field(default_factory=list)
 
     player_airfields: List[Airfield] = field(default_factory=list)
     enemy_airfields: List[Airfield] = field(default_factory=list)
@@ -142,6 +139,13 @@ class Debriefing:
         self.ground_losses = self.dead_ground_units()
         self.base_captures = self.base_capture_events()
 
+    def merge_simulation_results(self, results: SimulationResults) -> None:
+        for air_loss in results.air_losses:
+            if air_loss.flight.squadron.player:
+                self.air_losses.player.append(air_loss)
+            else:
+                self.air_losses.enemy.append(air_loss)
+
     @property
     def front_line_losses(self) -> Iterator[FrontLineUnit]:
         yield from self.ground_losses.player_front_line
@@ -163,14 +167,14 @@ class Debriefing:
         yield from self.ground_losses.enemy_airlifts
 
     @property
-    def ground_object_losses(self) -> Iterator[GroundObjectUnit[Any]]:
+    def ground_object_losses(self) -> Iterator[TheaterUnitMapping]:
         yield from self.ground_losses.player_ground_objects
         yield from self.ground_losses.enemy_ground_objects
 
     @property
-    def building_losses(self) -> Iterator[Building]:
-        yield from self.ground_losses.player_buildings
-        yield from self.ground_losses.enemy_buildings
+    def scenery_object_losses(self) -> Iterator[SceneryObjectMapping]:
+        yield from self.ground_losses.player_scenery
+        yield from self.ground_losses.enemy_scenery
 
     @property
     def damaged_runways(self) -> Iterator[Airfield]:
@@ -222,17 +226,24 @@ class Debriefing:
                 losses_by_type[unit_type] += 1
         return losses_by_type
 
-    def building_losses_by_type(self, player: bool) -> Dict[str, int]:
+    def ground_object_losses_by_type(self, player: bool) -> Dict[str, int]:
         losses_by_type: Dict[str, int] = defaultdict(int)
         if player:
-            losses = self.ground_losses.player_buildings
+            losses = self.ground_losses.player_ground_objects
         else:
-            losses = self.ground_losses.enemy_buildings
+            losses = self.ground_losses.enemy_ground_objects
         for loss in losses:
-            if loss.ground_object.control_point.captured != player:
-                continue
+            losses_by_type[loss.theater_unit.type.id] += 1
+        return losses_by_type
 
-            losses_by_type[loss.ground_object.dcs_identifier] += 1
+    def scenery_losses_by_type(self, player: bool) -> Dict[str, int]:
+        losses_by_type: Dict[str, int] = defaultdict(int)
+        if player:
+            losses = self.ground_losses.player_scenery
+        else:
+            losses = self.ground_losses.enemy_scenery
+        for loss in losses:
+            losses_by_type[loss.trigger_zone.name] += 1
         return losses_by_type
 
     def dead_aircraft(self) -> AirLosses:
@@ -276,25 +287,21 @@ class Debriefing:
                     losses.enemy_cargo_ships.append(cargo_ship)
                 continue
 
-            ground_object_unit = self.unit_map.ground_object_unit(unit_name)
-            if ground_object_unit is not None:
-                if ground_object_unit.ground_object.control_point.captured:
-                    losses.player_ground_objects.append(ground_object_unit)
+            ground_object = self.unit_map.theater_units(unit_name)
+            if ground_object is not None:
+                if ground_object.theater_unit.ground_object.is_friendly(to_player=True):
+                    losses.player_ground_objects.append(ground_object)
                 else:
-                    losses.enemy_ground_objects.append(ground_object_unit)
+                    losses.enemy_ground_objects.append(ground_object)
                 continue
 
-            building = self.unit_map.building_or_fortification(unit_name)
+            scenery_object = self.unit_map.scenery_object(unit_name)
             # Try appending object to the name, because we do this for building statics.
-            if building is None:
-                building = self.unit_map.building_or_fortification(
-                    f"{unit_name} object"
-                )
-            if building is not None:
-                if building.ground_object.control_point.captured:
-                    losses.player_buildings.append(building)
+            if scenery_object is not None:
+                if scenery_object.ground_unit.ground_object.is_friendly(to_player=True):
+                    losses.player_scenery.append(scenery_object)
                 else:
-                    losses.enemy_buildings.append(building)
+                    losses.enemy_scenery.append(scenery_object)
                 continue
 
             airfield = self.unit_map.airfield(unit_name)
@@ -331,8 +338,10 @@ class Debriefing:
         seen = set()
         captures = []
         for capture in reversed(self.state_data.base_capture_events):
-            cp_id_str, new_owner_id_str, _name = capture.split("||")
-            cp_id = int(cp_id_str)
+            # The ID string in the JSON file will be an airport ID for airport captures
+            # but will be a UUID for all other types, since DCS doesn't know the UUIDs
+            # for the captured FOBs.
+            cp_id, new_owner_id_str, _name = capture.split("||")
 
             # Only the most recent capture event matters.
             if cp_id in seen:
@@ -340,7 +349,12 @@ class Debriefing:
             seen.add(cp_id)
 
             try:
-                control_point = self.game.theater.find_control_point_by_id(cp_id)
+                control_point = self.game.theater.find_control_point_by_airport_id(
+                    int(cp_id)
+                )
+            except ValueError:
+                # The CP ID could not be converted to an int, so it's a UUID.
+                control_point = self.game.theater.find_control_point_by_id(UUID(cp_id))
             except KeyError:
                 # Captured base is not a part of the campaign. This happens when neutral
                 # bases are near the conflict. Nothing to do.
@@ -354,54 +368,3 @@ class Debriefing:
 
             captures.append(BaseCaptureEvent(control_point, captured_by_player))
         return captures
-
-
-class PollDebriefingFileThread(threading.Thread):
-    """Thread class with a stop() method. The thread itself has to check
-    regularly for the stopped() condition."""
-
-    def __init__(
-        self, callback: Callable[[Debriefing], None], game: Game, unit_map: UnitMap
-    ) -> None:
-        super().__init__()
-        self._stop_event = threading.Event()
-        self.callback = callback
-        self.game = game
-        self.unit_map = unit_map
-
-    def stop(self) -> None:
-        self._stop_event.set()
-
-    def stopped(self) -> bool:
-        return self._stop_event.is_set()
-
-    def run(self) -> None:
-        if os.path.isfile("state.json"):
-            last_modified = os.path.getmtime("state.json")
-        else:
-            last_modified = 0
-        while not self.stopped():
-            try:
-                if (
-                    os.path.isfile("state.json")
-                    and os.path.getmtime("state.json") > last_modified
-                ):
-                    with open("state.json", "r", encoding="utf-8") as json_file:
-                        json_data = json.load(json_file)
-                        debriefing = Debriefing(json_data, self.game, self.unit_map)
-                        self.callback(debriefing)
-                    break
-            except json.JSONDecodeError:
-                logging.exception(
-                    "Failed to decode state.json. Probably attempted read while DCS "
-                    "was still writing the file. Will retry in 5 seconds."
-                )
-            time.sleep(5)
-
-
-def wait_for_debriefing(
-    callback: Callable[[Debriefing], None], game: Game, unit_map: UnitMap
-) -> PollDebriefingFileThread:
-    thread = PollDebriefingFileThread(callback, game, unit_map)
-    thread.start()
-    return thread

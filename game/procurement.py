@@ -5,19 +5,16 @@ import random
 from dataclasses import dataclass
 from typing import Iterator, List, Optional, TYPE_CHECKING, Tuple
 
-from game import db
-from game.data.groundunitclass import GroundUnitClass
+from game.config import RUNWAY_REPAIR_COST
+from game.data.units import UnitClass
 from game.dcs.groundunittype import GroundUnitType
-from game.factions.faction import Faction
-from game.squadrons import Squadron
 from game.theater import ControlPoint, MissionTarget
-from game.utils import meters
-from gen.flights.ai_flight_planner_db import aircraft_for_task
-from gen.flights.closestairfields import ObjectiveDistanceCache
-from gen.flights.flight import FlightType
 
 if TYPE_CHECKING:
     from game import Game
+    from game.ato import FlightType
+    from game.factions.faction import Faction
+    from game.squadrons import Squadron
 
 FRONTLINE_RESERVES_FACTOR = 1.3
 
@@ -103,11 +100,11 @@ class ProcurementAi:
 
     def repair_runways(self, budget: float) -> float:
         for control_point in self.owned_points:
-            if budget < db.RUNWAY_REPAIR_COST:
+            if budget < RUNWAY_REPAIR_COST:
                 break
             if control_point.runway_can_be_repaired:
                 control_point.begin_runway_repair()
-                budget -= db.RUNWAY_REPAIR_COST
+                budget -= RUNWAY_REPAIR_COST
                 if self.is_player:
                     self.game.message(
                         "OPFOR has begun repairing the runway at " f"{control_point}"
@@ -119,7 +116,7 @@ class ProcurementAi:
         return budget
 
     def affordable_ground_unit_of_class(
-        self, budget: float, unit_class: GroundUnitClass
+        self, budget: float, unit_class: UnitClass
     ) -> Optional[GroundUnitType]:
         faction_units = set(self.faction.frontline_units) | set(
             self.faction.artillery_units
@@ -157,11 +154,11 @@ class ProcurementAi:
 
         return budget
 
-    def most_needed_unit_class(self, cp: ControlPoint) -> GroundUnitClass:
-        worst_balanced: Optional[GroundUnitClass] = None
+    def most_needed_unit_class(self, cp: ControlPoint) -> UnitClass:
+        worst_balanced: Optional[UnitClass] = None
         worst_fulfillment = math.inf
-        for unit_class in GroundUnitClass:
-            if not self.faction.has_access_to_unittype(unit_class):
+        for unit_class in UnitClass:
+            if not self.faction.has_access_to_unit_class(unit_class):
                 continue
 
             current_ratio = self.cost_ratio_of_ground_unit(cp, unit_class)
@@ -179,7 +176,7 @@ class ProcurementAi:
                 worst_fulfillment = fulfillment
                 worst_balanced = unit_class
         if worst_balanced is None:
-            return GroundUnitClass.Tank
+            return UnitClass.TANK
         return worst_balanced
 
     @staticmethod
@@ -188,6 +185,14 @@ class ProcurementAi:
     ) -> Tuple[float, bool]:
         for squadron in squadrons:
             price = squadron.aircraft.price * quantity
+            # Final check to make sure the number of aircraft won't exceed the number of available pilots
+            # after fulfilling this aircraft request.
+            if (
+                squadron.pilot_limits_enabled
+                and squadron.expected_size_next_turn + quantity
+                > squadron.expected_pilots_next_turn
+            ):
+                continue
             if price > budget:
                 continue
 
@@ -295,7 +300,7 @@ class ProcurementAi:
         return understaffed
 
     def cost_ratio_of_ground_unit(
-        self, control_point: ControlPoint, unit_class: GroundUnitClass
+        self, control_point: ControlPoint, unit_class: UnitClass
     ) -> float:
         allocations = control_point.allocated_ground_units(
             self.game.coalition_for(self.is_player).transfers

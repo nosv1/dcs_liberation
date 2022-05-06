@@ -3,7 +3,7 @@ import traceback
 import webbrowser
 from typing import Optional
 
-from PySide2.QtCore import Qt
+from PySide2.QtCore import QSettings, Qt, Signal
 from PySide2.QtGui import QCloseEvent, QIcon
 from PySide2.QtWidgets import (
     QAction,
@@ -20,9 +20,14 @@ from PySide2.QtWidgets import (
 import qt_ui.uiconstants as CONST
 from game import Game, VERSION, persistency
 from game.debriefing import Debriefing
+from game.layout import LAYOUTS
+from game.server import EventStream, GameContext
+from game.server.dependencies import QtCallbacks, QtContext
+from game.theater import ControlPoint, MissionTarget, TheaterGroundObject
 from qt_ui import liberation_install
 from qt_ui.dialogs import Dialog
 from qt_ui.models import GameModel
+from qt_ui.simcontroller import SimController
 from qt_ui.uiconstants import URLS
 from qt_ui.uncaughtexceptionhandler import UncaughtExceptionHandler
 from qt_ui.widgets.QTopPanel import QTopPanel
@@ -30,29 +35,50 @@ from qt_ui.widgets.ato import QAirTaskingOrderPanel
 from qt_ui.widgets.map.QLiberationMap import QLiberationMap
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.QDebriefingWindow import QDebriefingWindow
+from qt_ui.windows.basemenu.QBaseMenu2 import QBaseMenu2
+from qt_ui.windows.groundobject.QGroundObjectMenu import QGroundObjectMenu
 from qt_ui.windows.infos.QInfoPanel import QInfoPanel
+from qt_ui.windows.logs.QLogsWindow import QLogsWindow
 from qt_ui.windows.newgame.QNewGameWizard import NewGameWizard
+from qt_ui.windows.notes.QNotesWindow import QNotesWindow
 from qt_ui.windows.preferences.QLiberationPreferencesWindow import (
     QLiberationPreferencesWindow,
 )
 from qt_ui.windows.settings.QSettingsWindow import QSettingsWindow
 from qt_ui.windows.stats.QStatsWindow import QStatsWindow
-from qt_ui.windows.notes.QNotesWindow import QNotesWindow
-from qt_ui.windows.logs.QLogsWindow import QLogsWindow
 
 
 class QLiberationWindow(QMainWindow):
-    def __init__(self, game: Optional[Game]) -> None:
+    new_package_signal = Signal(MissionTarget)
+    tgo_info_signal = Signal(TheaterGroundObject)
+    control_point_info_signal = Signal(ControlPoint)
+
+    def __init__(self, game: Game | None, dev: bool) -> None:
         super().__init__()
 
         self._uncaught_exception_handler = UncaughtExceptionHandler(self)
 
         self.game = game
-        self.game_model = GameModel(game)
+        self.sim_controller = SimController(self.game)
+        self.sim_controller.sim_update.connect(EventStream.put_nowait)
+        self.game_model = GameModel(game, self.sim_controller)
+        GameContext.set_model(self.game_model)
+        self.new_package_signal.connect(
+            lambda target: Dialog.open_new_package_dialog(target, self)
+        )
+        self.tgo_info_signal.connect(self.open_tgo_info_dialog)
+        self.control_point_info_signal.connect(self.open_control_point_info_dialog)
+        QtContext.set_callbacks(
+            QtCallbacks(
+                lambda target: self.new_package_signal.emit(target),
+                lambda tgo: self.tgo_info_signal.emit(tgo),
+                lambda cp: self.control_point_info_signal.emit(cp),
+            )
+        )
         Dialog.set_game(self.game_model)
         self.ato_panel = QAirTaskingOrderPanel(self.game_model)
         self.info_panel = QInfoPanel(self.game)
-        self.liberation_map = QLiberationMap(self.game_model, self)
+        self.liberation_map = QLiberationMap(self.game_model, dev, self)
 
         self.setGeometry(300, 100, 270, 100)
         self.updateWindowTitle()
@@ -65,9 +91,14 @@ class QLiberationWindow(QMainWindow):
         self.initMenuBar()
         self.connectSignals()
 
+        # Default to maximized on the main display if we don't have any persistent
+        # configuration.
         screen = QDesktopWidget().screenGeometry()
         self.setGeometry(0, 0, screen.width(), screen.height())
         self.setWindowState(Qt.WindowMaximized)
+
+        # But override it with the saved configuration if it exists.
+        self._restore_window_geometry()
 
         if self.game is None:
             last_save_file = liberation_install.get_last_save_file()
@@ -99,7 +130,7 @@ class QLiberationWindow(QMainWindow):
 
         vbox = QVBoxLayout()
         vbox.setMargin(0)
-        vbox.addWidget(QTopPanel(self.game_model))
+        vbox.addWidget(QTopPanel(self.game_model, self.sim_controller))
         vbox.addWidget(hbox)
 
         central_widget = QWidget()
@@ -176,6 +207,9 @@ class QLiberationWindow(QMainWindow):
         self.openNotesAction.setIcon(CONST.ICONS["Notes"])
         self.openNotesAction.triggered.connect(self.showNotesDialog)
 
+        self.importTemplatesAction = QAction("Import Layouts", self)
+        self.importTemplatesAction.triggered.connect(self.import_templates)
+
         self.enable_game_actions(False)
 
     def enable_game_actions(self, enabled: bool):
@@ -218,6 +252,9 @@ class QLiberationWindow(QMainWindow):
         file_menu.addAction(self.showLiberationPrefDialogAction)
         file_menu.addSeparator()
         file_menu.addAction("E&xit", self.close)
+
+        tools_menu = self.menu.addMenu("&Developer tools")
+        tools_menu.addAction(self.importTemplatesAction)
 
         help_menu = self.menu.addMenu("&Help")
         help_menu.addAction(self.openDiscordAction)
@@ -335,8 +372,8 @@ class QLiberationWindow(QMainWindow):
             self.game = game
             if self.info_panel is not None:
                 self.info_panel.setGame(game)
+            self.sim_controller.set_game(game)
             self.game_model.set(self.game)
-            self.liberation_map.set_game(game)
         except AttributeError:
             logging.exception("Incompatible save game")
             QMessageBox.critical(
@@ -394,6 +431,9 @@ class QLiberationWindow(QMainWindow):
         self.dialog = QNotesWindow(self.game)
         self.dialog.show()
 
+    def import_templates(self):
+        LAYOUTS.import_templates()
+
     def showLogsDialog(self):
         self.dialog = QLogsWindow()
         self.dialog.show()
@@ -403,6 +443,26 @@ class QLiberationWindow(QMainWindow):
         self.debriefing = QDebriefingWindow(debrief)
         self.debriefing.show()
 
+    def open_tgo_info_dialog(self, tgo: TheaterGroundObject) -> None:
+        QGroundObjectMenu(self, tgo, tgo.control_point, self.game).show()
+
+    def open_control_point_info_dialog(self, cp: ControlPoint) -> None:
+        self._cp_dialog = QBaseMenu2(None, cp, self.game_model)
+        self._cp_dialog.show()
+
+    def _qsettings(self) -> QSettings:
+        return QSettings("DCS Liberation", "Qt UI")
+
+    def _restore_window_geometry(self) -> None:
+        settings = self._qsettings()
+        self.restoreGeometry(settings.value("geometry"))
+        self.restoreState(settings.value("windowState"))
+
+    def _save_window_geometry(self) -> None:
+        settings = self._qsettings()
+        settings.setValue("geometry", self.saveGeometry())
+        settings.setValue("windowState", self.saveState())
+
     def closeEvent(self, event: QCloseEvent) -> None:
         result = QMessageBox.question(
             self,
@@ -411,6 +471,7 @@ class QLiberationWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
         )
         if result == QMessageBox.Yes:
+            self._save_window_geometry()
             super().closeEvent(event)
             self.dialog = None
         else:

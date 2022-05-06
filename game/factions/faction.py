@@ -3,17 +3,21 @@ from __future__ import annotations
 import itertools
 import logging
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Optional, Dict, Type, List, Any, Iterator, TYPE_CHECKING
 
 import dcs
 from dcs.countries import country_dict
-from dcs.unittype import ShipType, UnitType
+from dcs.unittype import ShipType, StaticType
+from dcs.unittype import UnitType as DcsUnitType
 
 from game.data.building_data import (
     WW2_ALLIES_BUILDINGS,
     DEFAULT_AVAILABLE_BUILDINGS,
     WW2_GERMANY_BUILDINGS,
     WW2_FREE,
+    REQUIRED_BUILDINGS,
+    IADS_BUILDINGS,
 )
 from game.data.doctrine import (
     Doctrine,
@@ -21,9 +25,13 @@ from game.data.doctrine import (
     COLDWAR_DOCTRINE,
     WWII_DOCTRINE,
 )
-from game.data.groundunitclass import GroundUnitClass
+from game.data.units import UnitClass
+from game.data.groups import GroupRole
 from game.dcs.aircrafttype import AircraftType
 from game.dcs.groundunittype import GroundUnitType
+from game.dcs.shipunittype import ShipUnitType
+from game.armedforces.forcegroup import ForceGroup
+from game.dcs.unittype import UnitType
 
 if TYPE_CHECKING:
     from game.theater.start_generator import ModSettings
@@ -68,26 +76,17 @@ class Faction:
     # Logistics units used
     logistics_units: List[GroundUnitType] = field(default_factory=list)
 
-    # Possible SAMS site generators for this faction
-    air_defenses: List[str] = field(default_factory=list)
+    # Possible Air Defence units, Like EWRs
+    air_defense_units: List[GroundUnitType] = field(default_factory=list)
 
-    # Possible EWR generators for this faction.
-    ewrs: List[str] = field(default_factory=list)
+    # A list of all supported sets of units
+    preset_groups: list[ForceGroup] = field(default_factory=list)
 
     # Possible Missile site generators for this faction
-    missiles: List[str] = field(default_factory=list)
-
-    # Possible costal site generators for this faction
-    coastal_defenses: List[str] = field(default_factory=list)
+    missiles: List[GroundUnitType] = field(default_factory=list)
 
     # Required mods or asset packs
     requirements: Dict[str, str] = field(default_factory=dict)
-
-    # possible aircraft carrier units
-    aircraft_carrier: List[Type[ShipType]] = field(default_factory=list)
-
-    # possible helicopter carrier units
-    helicopter_carrier: List[Type[ShipType]] = field(default_factory=list)
 
     # Possible carrier names
     carrier_names: List[str] = field(default_factory=list)
@@ -95,23 +94,8 @@ class Faction:
     # Possible helicopter carrier names
     helicopter_carrier_names: List[str] = field(default_factory=list)
 
-    # Navy group generators
-    navy_generators: List[str] = field(default_factory=list)
-
-    # Available destroyers
-    destroyers: List[Type[ShipType]] = field(default_factory=list)
-
-    # Available cruisers
-    cruisers: List[Type[ShipType]] = field(default_factory=list)
-
-    # How many navy group should we try to generate per CP on startup for this faction
-    navy_group_count: int = field(default=1)
-
-    # How many missiles group should we try to generate per CP on startup for this faction
-    missiles_group_count: int = field(default=1)
-
-    # How many coastal group should we try to generate per CP on startup for this faction
-    coastal_group_count: int = field(default=1)
+    # Available Naval Units
+    naval_units: List[ShipUnitType] = field(default_factory=list)
 
     # Whether this faction has JTAC access
     has_jtac: bool = field(default=False)
@@ -122,7 +106,7 @@ class Faction:
     # doctrine
     doctrine: Doctrine = field(default=MODERN_DOCTRINE)
 
-    # List of available buildings for this faction
+    # List of available building layouts for this faction
     building_set: List[str] = field(default_factory=list)
 
     # List of default livery overrides
@@ -137,11 +121,51 @@ class Faction:
     #: both will use it.
     unrestricted_satnav: bool = False
 
-    def has_access_to_unittype(self, unit_class: GroundUnitClass) -> bool:
-        for vehicle in itertools.chain(self.frontline_units, self.artillery_units):
-            if vehicle.unit_class is unit_class:
-                return True
+    def has_access_to_dcs_type(self, unit_type: Type[DcsUnitType]) -> bool:
+        # Vehicle and Ship Units
+        if any(unit_type == u.dcs_unit_type for u in self.accessible_units):
+            return True
+
+        # Statics
+        if issubclass(unit_type, StaticType):
+            # TODO Improve the statics checking
+            # We currently do not have any list or similar to check if a faction has
+            # access to a specific static. There we accept any static here
+            return True
         return False
+
+    def has_access_to_unit_class(self, unit_class: UnitClass) -> bool:
+        return any(unit.unit_class is unit_class for unit in self.accessible_units)
+
+    @cached_property
+    def accessible_units(self) -> list[UnitType[Any]]:
+        all_units: Iterator[UnitType[Any]] = itertools.chain(
+            self.ground_units,
+            self.infantry_units,
+            self.air_defense_units,
+            self.naval_units,
+            self.missiles,
+            (
+                unit
+                for preset_group in self.preset_groups
+                for unit in preset_group.units
+            ),
+        )
+        return list(set(all_units))
+
+    @property
+    def air_defenses(self) -> list[str]:
+        """Returns the Air Defense types"""
+        # This is used for the faction overview in NewGameWizard
+        air_defenses = [a.name for a in self.air_defense_units]
+        air_defenses.extend(
+            [
+                pg.name
+                for pg in self.preset_groups
+                if any(task.role == GroupRole.AIR_DEFENSE for task in pg.tasks)
+            ]
+        )
+        return sorted(air_defenses)
 
     @classmethod
     def from_json(cls: Type[Faction], json: Dict[str, Any]) -> Faction:
@@ -182,35 +206,30 @@ class Faction:
         faction.logistics_units = [
             GroundUnitType.named(n) for n in json.get("logistics_units", [])
         ]
+        faction.air_defense_units = [
+            GroundUnitType.named(n) for n in json.get("air_defense_units", [])
+        ]
+        faction.missiles = [GroundUnitType.named(n) for n in json.get("missiles", [])]
 
-        faction.ewrs = json.get("ewrs", [])
+        faction.naval_units = [
+            ShipUnitType.named(n) for n in json.get("naval_units", [])
+        ]
 
-        faction.air_defenses = json.get("air_defenses", [])
-        # Compatibility for older factions. All air defenses now belong to a
-        # single group and the generator decides what belongs where.
-        faction.air_defenses.extend(json.get("sams", []))
-        faction.air_defenses.extend(json.get("shorads", []))
+        faction.preset_groups = [
+            ForceGroup.named(n) for n in json.get("preset_groups", [])
+        ]
 
-        faction.missiles = json.get("missiles", [])
-        faction.coastal_defenses = json.get("coastal_defenses", [])
         faction.requirements = json.get("requirements", {})
 
         faction.carrier_names = json.get("carrier_names", [])
         faction.helicopter_carrier_names = json.get("helicopter_carrier_names", [])
-        faction.navy_generators = json.get("navy_generators", [])
-        faction.aircraft_carrier = load_all_ships(json.get("aircraft_carrier", []))
-        faction.helicopter_carrier = load_all_ships(json.get("helicopter_carrier", []))
-        faction.destroyers = load_all_ships(json.get("destroyers", []))
-        faction.cruisers = load_all_ships(json.get("cruisers", []))
+
         faction.has_jtac = json.get("has_jtac", False)
         jtac_name = json.get("jtac_unit", None)
         if jtac_name is not None:
             faction.jtac_unit = AircraftType.named(jtac_name)
         else:
             faction.jtac_unit = None
-        faction.navy_group_count = int(json.get("navy_group_count", 1))
-        faction.missiles_group_count = int(json.get("missiles_group_count", 0))
-        faction.coastal_group_count = int(json.get("coastal_group_count", 0))
 
         # Load doctrine
         doctrine = json.get("doctrine", "modern")
@@ -224,17 +243,22 @@ class Faction:
             faction.doctrine = MODERN_DOCTRINE
 
         # Load the building set
+        faction.building_set = []
         building_set = json.get("building_set", "default")
         if building_set == "default":
-            faction.building_set = DEFAULT_AVAILABLE_BUILDINGS
+            faction.building_set.extend(DEFAULT_AVAILABLE_BUILDINGS)
         elif building_set == "ww2free":
-            faction.building_set = WW2_FREE
+            faction.building_set.extend(WW2_FREE)
         elif building_set == "ww2ally":
-            faction.building_set = WW2_ALLIES_BUILDINGS
+            faction.building_set.extend(WW2_ALLIES_BUILDINGS)
         elif building_set == "ww2germany":
-            faction.building_set = WW2_GERMANY_BUILDINGS
+            faction.building_set.extend(WW2_GERMANY_BUILDINGS)
         else:
-            faction.building_set = DEFAULT_AVAILABLE_BUILDINGS
+            faction.building_set.extend(DEFAULT_AVAILABLE_BUILDINGS)
+
+        # Add required buildings for the game logic (e.g. ammo, factory..)
+        faction.building_set.extend(REQUIRED_BUILDINGS)
+        faction.building_set.extend(IADS_BUILDINGS)
 
         # Load liveries override
         faction.liveries_overrides = {}
@@ -253,14 +277,12 @@ class Faction:
         yield from self.frontline_units
         yield from self.logistics_units
 
-    def infantry_with_class(
-        self, unit_class: GroundUnitClass
-    ) -> Iterator[GroundUnitType]:
+    def infantry_with_class(self, unit_class: UnitClass) -> Iterator[GroundUnitType]:
         for unit in self.infantry_units:
             if unit.unit_class is unit_class:
                 yield unit
 
-    def apply_mod_settings(self, mod_settings: ModSettings) -> Faction:
+    def apply_mod_settings(self, mod_settings: ModSettings) -> None:
         # aircraft
         if not mod_settings.a4_skyhawk:
             self.remove_aircraft("A-4E-C")
@@ -320,24 +342,23 @@ class Faction:
             self.remove_vehicle("KORNET")
         # high digit sams
         if not mod_settings.high_digit_sams:
-            self.remove_air_defenses("SA10BGenerator")
-            self.remove_air_defenses("SA12Generator")
-            self.remove_air_defenses("SA20Generator")
-            self.remove_air_defenses("SA20BGenerator")
-            self.remove_air_defenses("SA23Generator")
-            self.remove_air_defenses("SA17Generator")
-            self.remove_air_defenses("KS19Generator")
-        return self
+            self.remove_preset("SA-10B/S-300PS")
+            self.remove_preset("SA-12/S-300V")
+            self.remove_preset("SA-20/S-300PMU-1")
+            self.remove_preset("SA-20B/S-300PMU-2")
+            self.remove_preset("SA-23/S-300VM")
+            self.remove_preset("SA-17")
+            self.remove_preset("KS-19")
 
     def remove_aircraft(self, name: str) -> None:
         for i in self.aircrafts:
             if i.dcs_unit_type.id == name:
                 self.aircrafts.remove(i)
 
-    def remove_air_defenses(self, name: str) -> None:
-        for i in self.air_defenses:
-            if i == name:
-                self.air_defenses.remove(i)
+    def remove_preset(self, name: str) -> None:
+        for pg in self.preset_groups:
+            if pg.name == name:
+                self.preset_groups.remove(pg)
 
     def remove_vehicle(self, name: str) -> None:
         for i in self.frontline_units:

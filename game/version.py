@@ -1,8 +1,8 @@
 from pathlib import Path
 
 
-MAJOR_VERSION = 5
-MINOR_VERSION = 2
+MAJOR_VERSION = 6
+MINOR_VERSION = 0
 MICRO_VERSION = 0
 
 
@@ -123,7 +123,27 @@ VERSION = _build_version_string()
 #: Version 9.1
 #: * Campaign files can optionally define a start date with
 #:   `recommended_start_date: YYYY-MM-DD`.
-CAMPAIGN_FORMAT_VERSION = (9, 1)
-
-# Version 5.2.0 of DCS Liberation also supports Campaigns of Version 10.0
-SUPPORTED_CAMPAIGN_VERSION = (10, 0)
+#:
+#: Version 9.2
+#: * Squadrons defined in campaign files can optionally setup squadrons' name,
+#:   nickname and/or generated female pilot name percentage
+#:
+#: Version 10.0
+#: * The new introduced layout system extends the mission generation so that a
+#:   campaign designer can now define the heading of the ground objects which will be
+#:   also used later in mission generation to orient the group accordingly.
+#:   This removes the randomization of the orientation from the generation.
+#:   Most campaigns will not need any updates and will work out of the box.
+#:
+#: Version 10.1
+#: * Campaign designers can now define the recommended economy settings:
+#:   `recommended_player_money: 2000`.
+#:   `recommended_enemy_money: 2000`.
+#:   `recommended_player_income_multiplier: 1.0`.
+#:   `recommended_enemy_income_multiplier: 1.0`.
+#:
+#: Version 10.2
+#: * Campaign files can optionally define the iads configuration
+#:   It is possible to define if the campaign supports advanced iads
+#:
+CAMPAIGN_FORMAT_VERSION = (10, 2)
