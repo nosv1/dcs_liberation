@@ -193,8 +193,8 @@ class TheaterState(WorldState["TheaterState"]):
             enemy_air_defenses=list(finder.enemy_air_defenses()),
             threatening_air_defenses=[],
             detecting_air_defenses=[],
-            enemy_convoys=list(finder.convoys()),
-            enemy_shipping=list(finder.cargo_ships()),
+            enemy_convoys=list(finder.convoys(not player)),
+            enemy_shipping=list(finder.cargo_ships(not player)),
             enemy_ships=list(finder.enemy_ships()),
             enemy_garrisons={
                 cp: Garrisons.for_control_point(cp) for cp in ordered_capturable_points

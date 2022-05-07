@@ -161,20 +161,18 @@ class ObjectiveFinder:
                 airfields.append(control_point)
         return self._targets_by_range(airfields)
 
-    def convoys(self) -> Iterator[Convoy]:
+    def convoys(self, player: bool) -> Iterator[Convoy]:
         for front_line in self.front_lines():
-            yield from self.game.coalition_for(
-                self.is_player
-            ).transfers.convoys.travelling_to(
-                front_line.control_point_hostile_to(not self.is_player)
+            yield from self.game.coalition_for(player).transfers.convoys.travelling_to(
+                front_line.control_point_hostile_to(not player)
             )
 
-    def cargo_ships(self) -> Iterator[CargoShip]:
+    def cargo_ships(self, player: bool) -> Iterator[CargoShip]:
         for front_line in self.front_lines():
             yield from self.game.coalition_for(
-                self.is_player
+                player
             ).transfers.cargo_ships.travelling_to(
-                front_line.control_point_hostile_to(not self.is_player)
+                front_line.control_point_hostile_to(not player)
             )
 
     def friendly_control_points(self) -> Iterator[ControlPoint]:
