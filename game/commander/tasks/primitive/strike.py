@@ -20,11 +20,19 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
         if not self.target_area_preconditions_met(state):
             return False
 
+        target_priority: float = 1 - (
+            state.strike_targets.index(self.target) / len(state.strike_targets)
+        )
         air_ratio: float = state.get_ground_ratio()
         r: float = random.random()
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
+        logging.warn(
+            f"Air Ratio: {air_ratio:.2f}, "
+            f"Target Priority: {target_priority:.2f}, "
+            f"{r:.2f}"
+        )
 
-        if r > air_ratio / 2:
+        # see dead.py for explanation on logic
+        if r > (air_ratio / 2 + target_priority / 4):
             logging.warn(f"Not going for strike")
             return False
 

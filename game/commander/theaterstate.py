@@ -138,28 +138,22 @@ class TheaterState(WorldState["TheaterState"]):
         data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
             -1
         ]
-
         air_ratio: float = (1 + data.allied_units.aircraft_count) / (
             1 + data.enemy_units.aircraft_count
         )
-
         if not self.context.coalition.player:
             air_ratio = 1 / air_ratio
-
         return air_ratio
 
     def get_ground_ratio(self) -> float:
         data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
             -1
         ]
-
         ground_ratio: float = (1 + data.allied_units.vehicles_count) / (
             1 + data.enemy_units.vehicles_count
         )
-
         if not self.context.coalition.player:
             ground_ratio = 1 / ground_ratio
-
         return ground_ratio
 
     @classmethod

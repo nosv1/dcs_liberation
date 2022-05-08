@@ -23,11 +23,30 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
         if not self.target_area_preconditions_met(state, ignore_iads=True):
             return False
 
+        try:
+            target_priority: float = 1 - (
+                state.threatening_air_defenses.index(self.target)
+                / len(state.threatening_air_defenses)
+            )
+        except ValueError:
+            target_priority: float = 1 - (
+                state.detecting_air_defenses.index(self.target)
+                / len(state.detecting_air_defenses)
+            )
         air_ratio: float = state.get_air_ratio()
         r: float = random.random()
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
+        logging.warn(
+            f"Air Ratio: {air_ratio:.2f}, "
+            f"Target Priority: {target_priority:.2f}, "
+            f"{r:.2f}"
+        )
 
-        if r > air_ratio / 2:
+        # the higher the air ratio the more willing we are to attack target
+        # the closer the target the more willing we are to attack target
+        # ex. air ratio = 1.2 and target is the 7th closest out of 35, r is .7
+        # 1.2 / 2 = .6 + (1 - .2) / 4 = .8 = willingness to go for target
+        # r = .7 which is < .8 so we are willing to go for target, all things permitting
+        if r > (air_ratio / 2 + target_priority / 4):
             logging.warn(f"Not going for dead")
             return False
 
