@@ -5,7 +5,7 @@ import random
 
 from dataclasses import dataclass
 
-from game.commander.tasks.packageplanningtask import PackagePlanningTask
+from game.commander.tasks.packageplanningtask import PackagePlanningTask, EscortType
 from game.commander.theaterstate import TheaterState
 from game.theater import FrontLine
 from game.theater.controlpoint import ControlPoint
@@ -58,7 +58,7 @@ class PlanCas(PackagePlanningTask[FrontLine]):
 
     def propose_flights(self) -> None:
         self.propose_flight(FlightType.CAS, 2)
-        self.propose_flight(FlightType.SEAD, 2)
+        self.propose_flight(FlightType.SEAD_ESCORT, 2, EscortType.Sead)
         self.propose_flight(FlightType.TARCAP, 2)
 
     def is_friendly_cp_offensive(self, state: TheaterState) -> float:

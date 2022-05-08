@@ -979,7 +979,7 @@ class FlightPlanBuilder:
         elif task == FlightType.DEAD:
             return self.generate_dead(flight, custom_targets)
         elif task == FlightType.ESCORT:
-            return self.generate_escort(flight)
+            return self.generate_escort(flight, timedelta(seconds=60 * 3))
         elif task == FlightType.OCA_AIRCRAFT:
             return self.generate_oca_strike(flight)
         elif task == FlightType.OCA_RUNWAY:
@@ -987,7 +987,7 @@ class FlightPlanBuilder:
         elif task == FlightType.SEAD:
             return self.generate_sead(flight, custom_targets)
         elif task == FlightType.SEAD_ESCORT:
-            return self.generate_escort(flight)
+            return self.generate_escort(flight, timedelta(seconds=60 * 6))
         elif task == FlightType.STRIKE:
             return self.generate_strike(flight)
         elif task == FlightType.SWEEP:
@@ -1557,7 +1557,7 @@ class FlightPlanBuilder:
             lead_time=timedelta(minutes=1),
         )
 
-    def generate_escort(self, flight: Flight) -> StrikeFlightPlan:
+    def generate_escort(self, flight: Flight, lead_time: timedelta) -> StrikeFlightPlan:
         assert self.package.waypoints is not None
 
         builder = WaypointBuilder(flight, self.coalition)
@@ -1587,6 +1587,7 @@ class FlightPlanBuilder:
             land=builder.land(flight.arrival),
             divert=builder.divert(flight.divert),
             bullseye=builder.bullseye(),
+            lead_time=lead_time,
         )
 
     def generate_cas(self, flight: Flight) -> CasFlightPlan:
