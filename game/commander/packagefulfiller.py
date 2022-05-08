@@ -115,12 +115,9 @@ class PackageFulfiller:
                 flight.flight_plan.escorted_waypoints()
             ):
                 threats[EscortType.AirToAir] = True
-            if (
-                self.threat_zones.waypoints_threatened_by_radar_sam(
-                    list(flight.flight_plan.escorted_waypoints())
-                )
-                or flight.flight_type == FlightType.CAS
-            ):
+            if self.threat_zones.waypoints_threatened_by_radar_sam(
+                list(flight.flight_plan.escorted_waypoints())
+            ) or flight.flight_plan in [FlightType.CAS, FlightType.BAI]:
                 threats[EscortType.Sead] = True
         return threats
 
