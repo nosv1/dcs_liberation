@@ -41,12 +41,10 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             f"{r:.2f}"
         )
 
-        # the higher the air ratio the more willing we are to attack target
-        # the closer the target the more willing we are to attack target
-        # ex. air ratio = 1.2 and target is the 7th closest out of 35, r is .7
-        # 1.2 / 2 = .6 + (1 - .2) / 4 = .8 = willingness to go for target
-        # r = .7 which is < .8 so we are willing to go for target, all things permitting
-        if r > (air_ratio / 2 + target_priority / 4):
+        # we want 50% chance when air_ratio == 1,
+        # when air_ratio is large, more willing to go for target
+        # if target is close and air_ratio is large, more willing to go for target
+        if r > air_ratio / 2 or r > target_priority:
             logging.warn(f"Not going for dead")
             return False
 

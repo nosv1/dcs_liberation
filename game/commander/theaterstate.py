@@ -134,7 +134,6 @@ class TheaterState(WorldState["TheaterState"]):
         )
 
     def get_air_ratio(self) -> float:
-
         data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
             -1
         ]

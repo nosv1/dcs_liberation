@@ -32,7 +32,7 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
         )
 
         # see dead.py for explanation on logic
-        if r > (air_ratio / 2 + target_priority / 4):
+        if r > air_ratio / 2 or r > target_priority:
             logging.warn(f"Not going for strike")
             return False
 
