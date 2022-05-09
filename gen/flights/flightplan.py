@@ -979,7 +979,7 @@ class FlightPlanBuilder:
         elif task == FlightType.DEAD:
             return self.generate_dead(flight, custom_targets)
         elif task == FlightType.ESCORT:
-            return self.generate_escort(flight, timedelta(seconds=60 * 3))
+            return self.generate_escort(flight, timedelta(minutes=5))
         elif task == FlightType.OCA_AIRCRAFT:
             return self.generate_oca_strike(flight)
         elif task == FlightType.OCA_RUNWAY:
@@ -987,7 +987,7 @@ class FlightPlanBuilder:
         elif task == FlightType.SEAD:
             return self.generate_sead(flight, custom_targets)
         elif task == FlightType.SEAD_ESCORT:
-            return self.generate_escort(flight, timedelta(seconds=60 * 6))
+            return self.generate_escort(flight, timedelta(minutes=10))
         elif task == FlightType.STRIKE:
             return self.generate_strike(flight)
         elif task == FlightType.SWEEP:
