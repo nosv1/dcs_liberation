@@ -24,15 +24,15 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
             state.strike_targets.index(self.target) / len(state.strike_targets)
         )
         air_ratio: float = state.get_ground_ratio()
-        r: float = random.random()
+        r_air: float = random.random()
         logging.warn(
             f"Air Ratio: {air_ratio:.2f}, "
             f"Target Priority: {target_priority:.2f}, "
-            f"{r:.2f}"
+            f"{r_air:.2f}"
         )
 
-        # see dead.py for explanation on logic
-        if r > air_ratio / 2 or r > target_priority:
+        # large air ratio, more willing, or close target more willing
+        if r_air > air_ratio / 2 or r_air > target_priority:
             logging.warn(f"Not going for strike")
             return False
 

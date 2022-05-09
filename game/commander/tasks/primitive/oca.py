@@ -22,9 +22,11 @@ class PlanOcaStrike(PackagePlanningTask[ControlPoint]):
             return False
 
         air_ratio: float = state.get_ground_ratio()
-        r: float = random.random()
+        r_air: float = random.random()
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r_air:.2f}")
 
-        if r < air_ratio / 2:
+        # small air ratio, more willing, desperation attack cause o.p. tactics
+        if r_air < air_ratio / 2:
             logging.warn(f"Not going for BAI")
             return False
 

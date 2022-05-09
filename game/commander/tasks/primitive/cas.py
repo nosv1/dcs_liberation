@@ -33,23 +33,30 @@ class PlanCas(PackagePlanningTask[FrontLine]):
             return False
 
         ground_ratio: float = state.get_ground_ratio()
-        r: float = random.random()
+        air_ratio: float = state.get_air_ratio()
+        r_air: float = random.random()
+        r_ground: float = random.random()
 
         logging.warn(f"Enemy CP: {enemy_cp.name}")
         logging.warn(f"Friendly CP: {friendly_cp.name}")
         logging.warn(
             f"Active Front Lines: {[(fl[0].name, fl[1].name) for fl in state.front_line_stances.items() if None not in fl]}"
         )
-        logging.warn(f"Ground Ratio: {ground_ratio:.2f}, RND {r:.2f}")
+        logging.warn(f"Ground Ratio: {ground_ratio:.2f}, RND {r_ground:.2f}")
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, RND {r_air:.2f}")
 
-        if self.is_friendly_cp_offensive(state):
-            if r > ground_ratio / 2:
-                logging.warn(f"CAS not supporting offense")
-                return False
-        else:
-            if r < ground_ratio / 2:
-                logging.warn(f"CAS not supporting defense")
-                return False
+        # large air ratio, more willing
+        if r_air > air_ratio / 2:
+            # offensive front line and large ground ratio, more willing
+            if self.is_friendly_cp_offensive(state):
+                if r_ground > ground_ratio / 2:
+                    logging.warn(f"CAS not supporting offense")
+                    return False
+            # defensive front line and small ground ratio, more willing
+            else:
+                if r_ground < ground_ratio / 2:
+                    logging.warn(f"CAS not supporting defense")
+                    return False
 
         return super().preconditions_met(state)
 

@@ -34,17 +34,15 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
                 / len(state.detecting_air_defenses)
             )
         air_ratio: float = state.get_air_ratio()
-        r: float = random.random()
+        r_air: float = random.random()
         logging.warn(
             f"Air Ratio: {air_ratio:.2f}, "
             f"Target Priority: {target_priority:.2f}, "
-            f"{r:.2f}"
+            f"RND {r_air:.2f}"
         )
 
-        # we want 50% chance when air_ratio == 1,
-        # when air_ratio is large, more willing to go for target
-        # if target is close and air_ratio is large, more willing to go for target
-        if r > air_ratio / 2 or r > target_priority:
+        # if air ratio is large or target is close, more willing
+        if r_air > air_ratio / 2 or r_air > target_priority:
             logging.warn(f"Not going for dead")
             return False
 

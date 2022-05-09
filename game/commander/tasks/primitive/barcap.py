@@ -22,10 +22,11 @@ class PlanBarcap(PackagePlanningTask[ControlPoint]):
             return False
 
         air_ratio: float = state.get_air_ratio()
-        r: float = random.random()
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, RND {r:.2f}")
+        r_air: float = random.random()
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, RND {r_air:.2f}")
 
-        if r < air_ratio / 2:
+        # small air ratio, more willing
+        if r_air < air_ratio / 2:
             logging.warn(f"Not providing barcap")
             # logic is air ratio is even at 1.0, so 50% of the barcaps scheduled :sunglasses:
             return False

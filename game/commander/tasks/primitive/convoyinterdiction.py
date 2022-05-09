@@ -21,12 +21,18 @@ class PlanConvoyInterdiction(PackagePlanningTask[Convoy]):
             return False
 
         ground_ratio: float = state.get_ground_ratio()
-        r: float = random.random()
-        logging.warn(f"Ground Ratio: {ground_ratio:.2f}, {r:.2f}")
+        air_ratio: float = state.get_air_ratio()
+        r_ground: float = random.random()
+        r_air: float = random.random()
+        logging.warn(f"Ground Ratio: {ground_ratio:.2f}, RND {r_ground:.2f}")
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, RND {r_air:.2f}")
 
-        if r < ground_ratio / 2:
-            logging.warn(f"Not going for convoy")
-            return False
+        # large air ratio, more willing
+        if r_air > air_ratio / 2:
+            # small ground ratio, more willing
+            if r_ground < ground_ratio / 2:
+                logging.warn(f"Not going for convoy")
+                return False
 
         return super().preconditions_met(state)
 

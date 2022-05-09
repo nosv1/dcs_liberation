@@ -19,14 +19,12 @@ class PlanBai(PackagePlanningTask[VehicleGroupGroundObject]):
         if not self.target_area_preconditions_met(state):
             return False
 
-        ground_ratio: float = state.get_ground_ratio()
         air_ratio: float = state.get_air_ratio()
-        r: float = random.random()
+        r_air: float = random.random()
+        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r_air:.2f}")
 
-        logging.warn(f"Ground Ratio: {ground_ratio:.2f}")
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r:.2f}")
-
-        if r > max([ground_ratio / 2, air_ratio / 2]):
+        # large air ratio, more willing
+        if r_air > air_ratio / 2:
             logging.warn(f"Not going for BAI")
             return False
 
