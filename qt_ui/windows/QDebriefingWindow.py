@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Callable, Dict, TypeVar
 
 from PySide2.QtGui import QIcon, QPixmap
@@ -39,7 +40,23 @@ class LossGrid(QGridLayout):
 
         # TODO: Display dead ground object units and runways.
 
+        # self.removeWidget(self.itemAtPosition(self.rowCount() - 1, 0))  # FIXME... guess this doesn't work to remove the spacer row at the end
+        self.setRowStretch(self.rowCount(), 1)
+
     def add_loss_rows(self, losses: Dict[T, int], make_name: Callable[[T], str]):
+
+        if losses:
+            loss_type = list(losses.keys())[0].__class__.__name__  # -> AircraftUnitType
+            loss_type = " ".join(
+                re.findall(r"[A-Z][^A-Z]*", loss_type)[:-1]
+            )  # split by capital letters and remove 'Type'
+            total_losses_of_type = sum(losses.values())
+            self.addWidget(
+                QLabel(f"<b>{loss_type} ({total_losses_of_type})</b>"),
+                self.rowCount(),
+                0,
+            )
+
         for unit_type, count in losses.items():
             row = self.rowCount()
             try:
@@ -47,8 +64,12 @@ class LossGrid(QGridLayout):
             except AttributeError:
                 logging.exception(f"Could not make unit name for {unit_type}")
                 name = unit_type.id
-            self.addWidget(QLabel(name), row, 0)
+            self.addWidget(QLabel(f"    {name}"), row, 0)
             self.addWidget(QLabel(str(count)), row, 1)
+
+        # add spacer row
+        if losses:
+            self.addWidget(QLabel(""), self.rowCount(), 0)
 
 
 class QDebriefingWindow(QDialog):
@@ -58,7 +79,7 @@ class QDebriefingWindow(QDialog):
 
         self.setModal(True)
         self.setWindowTitle("Debriefing")
-        self.setMinimumSize(300, 200)
+        self.setMinimumSize(600, 400)
         self.setWindowIcon(QIcon("./resources/icon.png"))
 
         layout = QVBoxLayout()
@@ -74,13 +95,17 @@ class QDebriefingWindow(QDialog):
         title = QLabel("<b>Casualty report</b>")
         layout.addWidget(title)
 
+        report_layout = QGridLayout()
+
         player_lost_units = QGroupBox(f"{self.debriefing.player_country}'s lost units:")
         player_lost_units.setLayout(LossGrid(debriefing, player=True))
-        layout.addWidget(player_lost_units)
+        report_layout.addWidget(player_lost_units, 0, 0)
 
         enemy_lost_units = QGroupBox(f"{self.debriefing.enemy_country}'s lost units:")
         enemy_lost_units.setLayout(LossGrid(debriefing, player=False))
-        layout.addWidget(enemy_lost_units)
+        report_layout.addWidget(enemy_lost_units, 0, 1)
+
+        layout.addLayout(report_layout)
 
         okay = QPushButton("Okay")
         okay.clicked.connect(self.close)
