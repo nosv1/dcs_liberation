@@ -1383,7 +1383,7 @@ class FlightPlanBuilder:
         )
 
         end = location.position.point_from_heading(
-            heading.degrees,
+            heading.degrees + 45,
             random.randint(int(min_cap_distance.meters), int(max_cap_distance.meters)),
         )
 
@@ -1391,7 +1391,7 @@ class FlightPlanBuilder:
             int(self.doctrine.cap_min_track_length.meters),
             int(max_track_length.meters),
         )
-        start = end.point_from_heading(heading.opposite.degrees, track_length)
+        start = end.point_from_heading(heading.opposite.degrees - 90, track_length)
         return start, end
 
     def aewc_orbit(self, location: MissionTarget) -> Point:

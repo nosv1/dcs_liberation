@@ -42,9 +42,9 @@ class MissionScheduler:
 
         start_time = start_time_generator(
             count=len(non_dca_packages),
-            earliest=5 * 60,
+            earliest=0,
             latest=int(self.desired_mission_length.total_seconds()),
-            margin=5 * 60,
+            margin=timedelta(minutes=2).total_seconds(),
         )
         for package in self.coalition.ato.packages:
             tot = TotEstimator(package).earliest_tot()
