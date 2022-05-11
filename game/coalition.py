@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
+from datetime import timedelta
 
 from dcs import Point
 from faker import Faker
@@ -14,6 +15,7 @@ from game.navmesh import NavMesh
 from game.orderedset import OrderedSet
 from game.profiling import logged_duration, MultiEventTracer
 from game.squadrons import AirWing
+from game.theater import ControlPoint
 from game.threatzones import ThreatZones
 from game.transfers import PendingTransfers
 
@@ -24,7 +26,9 @@ from game.factions.faction import Faction
 from game.procurement import AircraftProcurementRequest, ProcurementAi
 from game.theater.bullseye import Bullseye
 from game.theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
-from gen.ato import AirTaskingOrder
+from gen.ato import AirTaskingOrder, Package
+from gen.flights.traveltime import TotEstimator
+from gen.flights.flight import Flight
 
 
 class Coalition:
@@ -205,6 +209,40 @@ class Coalition:
                     MissionScheduler(
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
+        self.offset_departure_times()
+
+    def offset_departure_times(self, offset: timedelta = timedelta(minutes=2)) -> None:
+        # to avoid congestion, we offset the departure times by a given offset,
+        # this does not account multiple flights in a package taking off at the same cp
+
+        cps: dict[ControlPoint, list[Flight]] = {}
+        for package in self.ato.packages:
+            for flight in package.flights:
+                if flight.from_cp not in cps:
+                    cps[flight.from_cp] = []
+                cps[flight.from_cp].append(flight)
+
+        for flights in cps.values():
+            flights.sort(key=lambda f: TotEstimator(f.package).mission_start_time(f))
+            for i, flight in enumerate(flights):
+                if not i:
+                    continue
+                delay = TotEstimator(flight.package).mission_start_time(flight)
+
+                for j, previous_flight in enumerate(flights[:i]):
+                    if previous_flight in flight.package.flights:
+                        continue
+
+                    previous_delay = TotEstimator(
+                        previous_flight.package
+                    ).mission_start_time(previous_flight)
+                    delta: timedelta = abs(delay - previous_delay)
+
+                    if delta < offset:
+                        self.ato.packages[
+                            self.ato.packages.index(flight.package)
+                        ].time_over_target += (offset - delta)
+                        delay += offset - delta
 
     def plan_procurement(self) -> None:
         # The first turn needs to buy a *lot* of aircraft to fill CAPs, so it gets much
