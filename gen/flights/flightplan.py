@@ -1382,8 +1382,9 @@ class FlightPlanBuilder:
             self.doctrine.cap_max_distance_from_cp, distance_to_no_fly
         )
 
+        # set the track position so that it is perpendicular-ish to the cp and nearest enemy airbase
         end = location.position.point_from_heading(
-            heading.degrees + 45,
+            heading.degrees + random.randint(35, 55),
             random.randint(int(min_cap_distance.meters), int(max_cap_distance.meters)),
         )
 
@@ -1391,7 +1392,9 @@ class FlightPlanBuilder:
             int(self.doctrine.cap_min_track_length.meters),
             int(max_track_length.meters),
         )
-        start = end.point_from_heading(heading.opposite.degrees - 90, track_length)
+        start = end.point_from_heading(
+            heading.opposite.degrees - random.randint(80, 100), track_length
+        )
         return start, end
 
     def aewc_orbit(self, location: MissionTarget) -> Point:
