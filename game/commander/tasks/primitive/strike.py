@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import random
 
 from dataclasses import dataclass
@@ -25,15 +24,9 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
         )
         air_ratio: float = state.get_ground_ratio()
         r_air: float = random.random()
-        logging.warn(
-            f"Air Ratio: {air_ratio:.2f}, "
-            f"Target Priority: {target_priority:.2f}, "
-            f"{r_air:.2f}"
-        )
 
         # large air ratio, more willing, or close target more willing
         if r_air > air_ratio / 2 or r_air > target_priority:
-            logging.warn(f"Not going for strike")
             return False
 
         return super().preconditions_met(state)
@@ -41,6 +34,6 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject[Any]]):
     def apply_effects(self, state: TheaterState) -> None:
         state.strike_targets.remove(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.STRIKE, 2)
         self.propose_common_escorts()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import random
 
 from dataclasses import dataclass
@@ -21,11 +20,9 @@ class PlanBai(PackagePlanningTask[VehicleGroupGroundObject]):
 
         air_ratio: float = state.get_air_ratio()
         r_air: float = random.random()
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r_air:.2f}")
 
         # large air ratio, more willing
         if r_air > air_ratio / 2:
-            logging.warn(f"Not going for BAI")
             return False
 
         return super().preconditions_met(state)
@@ -33,6 +30,6 @@ class PlanBai(PackagePlanningTask[VehicleGroupGroundObject]):
     def apply_effects(self, state: TheaterState) -> None:
         state.eliminate_garrison(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.BAI, 2)
         self.propose_common_escorts()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import random
 
 from dataclasses import dataclass
@@ -35,15 +34,9 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             )
         air_ratio: float = state.get_air_ratio()
         r_air: float = random.random()
-        logging.warn(
-            f"Air Ratio: {air_ratio:.2f}, "
-            f"Target Priority: {target_priority:.2f}, "
-            f"RND {r_air:.2f}"
-        )
 
         # if air ratio is large or target is close, more willing
         if r_air > air_ratio / 2 or r_air > target_priority:
-            logging.warn(f"Not going for dead")
             return False
 
         return super().preconditions_met(state)
@@ -51,7 +44,7 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
     def apply_effects(self, state: TheaterState) -> None:
         state.eliminate_air_defense(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.DEAD, 2)
 
         # Only include SEAD against SAMs that still have emitters. No need to

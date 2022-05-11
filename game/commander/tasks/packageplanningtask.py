@@ -93,7 +93,7 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
         return 1
 
     def fulfill_mission(self, state: TheaterState) -> bool:
-        self.propose_flights()
+        self.propose_flights(state)
         fulfiller = PackageFulfiller(
             state.context.coalition,
             state.context.theater,

@@ -44,6 +44,8 @@ class PersistentContext:
 class TheaterState(WorldState["TheaterState"]):
     context: PersistentContext
     barcaps_needed: dict[ControlPoint, int]
+    front_line_cas_needed: dict[FrontLine, int]
+    front_line_tarcaps_needed: dict[FrontLine, int]
     active_front_lines: list[FrontLine]
     front_line_stances: dict[FrontLine, Optional[CombatStance]]
     vulnerable_front_lines: list[FrontLine]
@@ -107,6 +109,8 @@ class TheaterState(WorldState["TheaterState"]):
         return TheaterState(
             context=self.context,
             barcaps_needed=dict(self.barcaps_needed),
+            front_line_cas_needed=dict(self.front_line_cas_needed),
+            front_line_tarcaps_needed=dict(self.front_line_tarcaps_needed),
             active_front_lines=list(self.active_front_lines),
             front_line_stances=dict(self.front_line_stances),
             vulnerable_front_lines=list(self.vulnerable_front_lines),
@@ -173,12 +177,33 @@ class TheaterState(WorldState["TheaterState"]):
         barcap_duration = coalition.doctrine.cap_duration.total_seconds()
         barcap_rounds = math.ceil(mission_duration / barcap_duration)
 
+        # Plan front line cas and tarcaps based on the ratio of enemy cp vs friendly cp
+        # high enemy low friendly, more cas
+        # high friendly low enemy, more tarcaps
+        front_lines = list(finder.front_lines())
+        front_line_cas_needed: dict[FrontLine, int] = {}
+        front_line_tarcaps_needed: dict[FrontLine, int] = {}
+        for front_line in front_lines:
+            enemy_cp = front_line.control_point_friendly_to(player=not player)
+            friendly_cp = front_line.control_point_friendly_to(player=player)
+            ground_ratio = enemy_cp.base.total_armor / (
+                friendly_cp.base.total_armor if friendly_cp.base.total_armor else 1
+            )
+            front_line_cas_needed[front_line] = int(
+                ground_ratio + 1
+            )  # 0-1x = 1, 1-2x = 2, ... # of cas needed
+            front_line_tarcaps_needed[front_line] = int(
+                1 / ground_ratio
+            )  # 0-1x = 0, 1-2x = 1, ... # of tarcaps needed
+
         return TheaterState(
             context=context,
             barcaps_needed={
                 cp: barcap_rounds for cp in finder.vulnerable_control_points()
             },
-            active_front_lines=list(finder.front_lines()),
+            front_line_cas_needed=front_line_cas_needed,
+            front_line_tarcaps_needed=front_line_tarcaps_needed,
+            active_front_lines=front_lines,
             front_line_stances={f: None for f in finder.front_lines()},
             vulnerable_front_lines=list(finder.front_lines()),
             aewc_targets=[finder.farthest_friendly_control_point()],

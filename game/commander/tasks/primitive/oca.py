@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import random
 
 from dataclasses import dataclass
@@ -23,11 +22,9 @@ class PlanOcaStrike(PackagePlanningTask[ControlPoint]):
 
         air_ratio: float = state.get_ground_ratio()
         r_air: float = random.random()
-        logging.warn(f"Air Ratio: {air_ratio:.2f}, {r_air:.2f}")
 
         # small air ratio, more willing, desperation attack cause o.p. tactics
         if r_air < air_ratio / 2:
-            logging.warn(f"Not going for BAI")
             return False
 
         return super().preconditions_met(state)
@@ -35,7 +32,7 @@ class PlanOcaStrike(PackagePlanningTask[ControlPoint]):
     def apply_effects(self, state: TheaterState) -> None:
         state.oca_targets.remove(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.OCA_RUNWAY, 2)
         if self.aircraft_cold_start:
             self.propose_flight(FlightType.OCA_AIRCRAFT, 2)
