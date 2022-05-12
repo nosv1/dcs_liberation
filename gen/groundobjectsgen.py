@@ -28,10 +28,19 @@ from dcs.action import SceneryDestructionZone, DoScript
 from dcs.condition import MapObjectIsDead
 from dcs.country import Country
 from dcs.point import StaticPoint
+from dcs.ships import (
+    CVN_71,
+    CVN_72,
+    CVN_73,
+    CVN_75,
+    Stennis,
+)
 from dcs.statics import Fortification, fortification_map, warehouse_map
 from dcs.task import (
     ActivateBeaconCommand,
     ActivateICLSCommand,
+    ActivateLink4Command,
+    ActivateACLSCommand,
     EPLRS,
     OptAlarmState,
     FireAtPoint,
@@ -404,7 +413,16 @@ class GenericCarrierGenerator(GenericGroundObjectGenerator[GenericCarrierGroundO
             # count those as the time the carrier uses to move and the mission
             # time as the recovery window.
             brc = self.steam_into_wind(ship_group)
-            self.activate_beacons(ship_group, tacan, tacan_callsign, icls)
+            link4 = None
+            if self.get_carrier_type(ship_group) in [
+                Stennis,
+                CVN_71,
+                CVN_72,
+                CVN_73,
+                CVN_75,
+            ]:
+                link4 = self.radio_registry.alloc_uhf()
+            self.activate_beacons(ship_group, tacan, tacan_callsign, icls, link4)
             self.add_runway_data(
                 brc or Heading.from_degrees(0), atc, tacan, tacan_callsign, icls
             )
@@ -462,7 +480,11 @@ class GenericCarrierGenerator(GenericGroundObjectGenerator[GenericCarrierGroundO
 
     @staticmethod
     def activate_beacons(
-        group: ShipGroup, tacan: TacanChannel, callsign: str, icls: int
+        group: ShipGroup,
+        tacan: TacanChannel,
+        callsign: str,
+        icls: int,
+        link4: Optional[RadioFrequency] = None,
     ) -> None:
         group.points[0].tasks.append(
             ActivateBeaconCommand(
@@ -476,6 +498,11 @@ class GenericCarrierGenerator(GenericGroundObjectGenerator[GenericCarrierGroundO
         group.points[0].tasks.append(
             ActivateICLSCommand(icls, unit_id=group.units[0].id)
         )
+        if link4 is not None:
+            group.points[0].tasks.append(
+                ActivateLink4Command(int(link4.mhz), group.units[0].id)
+            )
+            group.points[0].tasks.append(ActivateACLSCommand(unit_id=group.units[0].id))
 
     def add_runway_data(
         self,
