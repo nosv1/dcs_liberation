@@ -52,7 +52,7 @@ class QIntelBox(QGroupBox):
 
         self.details = QPushButton()
         self.details.setMinimumHeight(50)
-        self.details.setMinimumWidth(210)
+        self.details.setMinimumWidth(290)
         self.details.setLayout(summary)
         columns.addWidget(self.details)
         self.details.clicked.connect(self.open_details_window)
@@ -73,15 +73,16 @@ class QIntelBox(QGroupBox):
             return "enemy eliminated"
 
         ratio = own / enemy
+        ratio_str = f"({own} : {enemy})"
         if ratio < 0.6:
-            return "outnumbered"
+            return f"outnumbered {ratio_str}"
         if ratio < 0.8:
-            return "slightly outnumbered"
+            return f"slightly outnumbered {ratio_str}"
         if ratio < 1.2:
-            return "evenly matched"
+            return f"evenly matched {ratio_str}"
         if ratio < 1.4:
-            return "slight advantage"
-        return "strong advantage"
+            return f"slight advantage {ratio_str}"
+        return f"strong advantage {ratio_str}"
 
     def economic_strength_text(self) -> str:
         assert self.game is not None
@@ -91,16 +92,7 @@ class QIntelBox(QGroupBox):
         if not enemy:
             return "enemy economy ruined"
 
-        ratio = own / enemy
-        if ratio < 0.6:
-            return "strong disadvantage"
-        if ratio < 0.8:
-            return "slight disadvantage"
-        if ratio < 1.2:
-            return "evenly matched"
-        if ratio < 1.4:
-            return "slight advantage"
-        return "strong advantage"
+        return self.forces_strength_text(own, enemy)
 
     def update_summary(self) -> None:
         if self.game is None:
