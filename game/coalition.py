@@ -211,7 +211,7 @@ class Coalition:
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
         self.offset_carrier_departure_times()
-        # self.adjust_carrier_flight_landing_locations()
+        self.adjust_carrier_flight_landing_locations()
 
     def offset_carrier_departure_times(
         self, offset: timedelta = timedelta(minutes=2)
