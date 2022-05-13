@@ -216,7 +216,7 @@ class Coalition:
         self.adjust_carrier_flight_spawns_based_on_rtb_times()
 
     def offset_carrier_departure_times(
-        self, offset: timedelta = timedelta(minutes=2)
+        self, offset: timedelta = timedelta(minutes=2.5)
     ) -> None:
         # to avoid carrier congestion, we offset the departure times by a given offset,
         # this does not account multiple flights in a package taking off at the same cp
@@ -299,7 +299,7 @@ class Coalition:
                         flight.start_type = "In Flight"
                         start_type_changed = True
                         logging.debug(
-                            f"Adjusting flight {flight.unit_type.name} of {flight.package.primary_task} w/ TOT of {flight.package.time_over_target} to start in air."
+                            f"Adjusting flight {flight.unit_type.name} of {flight.package.primary_task}, w/ TOT of {flight.package.time_over_target} and start time of {esitmator.mission_start_time(flight)}, to start in air."
                         )
                         break
 
