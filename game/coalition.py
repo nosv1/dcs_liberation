@@ -283,19 +283,14 @@ class Coalition:
                             earlier_estimator.mission_start_time(earlier_flight)
                         )
                         tot: timedelta = earlier_flight.flight_plan.tot
-                        latest_depart_time: timedelta = max(
-                            [
-                                earlier_flight.flight_plan.depart_time_for_waypoint(wp)
-                                for wp in earlier_flight.flight_plan.waypoints
-                                if earlier_flight.flight_plan.depart_time_for_waypoint(
-                                    wp
-                                )
-                            ]
-                            + [tot]
-                        )
+                        latest_depart_time: timedelta = [tot] + [
+                            earlier_flight.flight_plan.depart_time_for_waypoint(wp)
+                            for wp in earlier_flight.flight_plan.waypoints
+                            if earlier_flight.flight_plan.depart_time_for_waypoint(wp)
+                        ]
                         base_to_target = tot - earlier_start_time
                         earlier_arrival_time: timedelta = (
-                            base_to_target + latest_depart_time
+                            base_to_target + latest_depart_time[-1]
                         )
 
                         if earlier_arrival_time > start_time:
