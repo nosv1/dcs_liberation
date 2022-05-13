@@ -211,7 +211,7 @@ class Coalition:
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
         self.offset_carrier_departure_times()
-        self.adjust_carrier_flight_landing_locations()
+        # self.adjust_carrier_flight_landing_locations()
 
     def offset_carrier_departure_times(
         self, offset: timedelta = timedelta(minutes=2)
@@ -258,7 +258,7 @@ class Coalition:
     def adjust_carrier_flight_landing_locations(self) -> None:
         # to avoid carrier congestion when the final flights are taking off and the early
         # flights are landing, we check to see if filghts will be taking off by the time
-        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + tot' ish
+        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + 10 min + tot' ish
 
         for package in self.ato.packages:
             for flight in package.flights:
@@ -268,7 +268,7 @@ class Coalition:
                 esitmator: TotEstimator = TotEstimator(flight.package)
                 start_time: timedelta = esitmator.mission_start_time(flight)
                 tot: timedelta = flight.flight_plan.tot
-                rtb_time: timedelta = (tot - start_time) + tot
+                rtb_time: timedelta = (tot - start_time) + timedelta(minutes=15) + tot
 
                 # check if there are flights still taking off by the time you get back to the carrier
                 # err on the side of caution
