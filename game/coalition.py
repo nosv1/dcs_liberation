@@ -289,9 +289,10 @@ class Coalition:
                             if earlier_flight.flight_plan.depart_time_for_waypoint(wp)
                         ]
                         base_to_target = tot - earlier_start_time
+                        # base_to_target + 'latest' or last wp with a time should be the rtb time, but - offset to be safe
                         earlier_arrival_time: timedelta = (
                             base_to_target + waypoint_depart_times[-1]
-                        )
+                        ) - timedelta(minutes=5)
 
                         if earlier_arrival_time > start_time:
                             continue
