@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from typing import TYPE_CHECKING, Any, Optional
 from datetime import timedelta
 
@@ -28,7 +30,7 @@ from game.theater.bullseye import Bullseye
 from game.theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
 from gen.ato import AirTaskingOrder
 from gen.flights.traveltime import TotEstimator
-from gen.flights.flight import Flight, FlightWaypointType
+from gen.flights.flight import Flight, FlightType, FlightWaypointType
 from gen.flights.flightplan import FlightPlanBuilder
 
 
@@ -211,7 +213,7 @@ class Coalition:
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
         self.offset_carrier_departure_times()
-        # self.adjust_carrier_flight_landing_locations()
+        self.adjust_carrier_flight_spawns_based_on_rtb_times()
 
     def offset_carrier_departure_times(
         self, offset: timedelta = timedelta(minutes=2)
@@ -255,10 +257,10 @@ class Coalition:
                     flight.package.time_over_target += adjustment
                     delay += adjustment
 
-    def adjust_carrier_flight_landing_locations(self) -> None:
+    def adjust_carrier_flight_spawns_based_on_rtb_times(self) -> None:
         # to avoid carrier congestion when the final flights are taking off and the early
         # flights are landing, we check to see if filghts will be taking off by the time
-        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + 10 min + tot' ish
+        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + some_tot_duration + tot' ish
 
         for package in self.ato.packages:
             for flight in package.flights:
@@ -267,53 +269,46 @@ class Coalition:
 
                 esitmator: TotEstimator = TotEstimator(flight.package)
                 start_time: timedelta = esitmator.mission_start_time(flight)
-                tot: timedelta = flight.flight_plan.tot
-                rtb_time: timedelta = (tot - start_time) + timedelta(minutes=15) + tot
 
-                # check if there are flights still taking off by the time you get back to the carrier
-                # err on the side of caution
-                for upcoming_package in self.ato.packages:
+                # check if there are flights coming to land by the time you are taking off, if so, spawn in air
+                for earlier_package in self.ato.packages:
 
-                    landing_moved: bool = False
-                    for upcoming_flight in upcoming_package.flights:
-                        if not upcoming_flight.from_cp.is_carrier:
+                    start_type_changed: bool = False
+                    for earlier_flight in earlier_package.flights:
+                        if not earlier_flight.from_cp.is_carrier:
                             continue
 
-                        upcoming_esitmator: TotEstimator = TotEstimator(
-                            upcoming_package
+                        earlier_estimator: TotEstimator = TotEstimator(earlier_package)
+                        earlier_start_time: timedelta = (
+                            earlier_estimator.mission_start_time(earlier_flight)
                         )
-                        upcoming_start_time: timedelta = (
-                            upcoming_esitmator.mission_start_time(upcoming_flight)
+                        tot: timedelta = earlier_flight.flight_plan.tot
+                        latest_depart_time: timedelta = max(
+                            [
+                                earlier_flight.flight_plan.depart_time_for_waypoint(wp)
+                                for wp in earlier_flight.flight_plan.waypoints
+                                if earlier_flight.flight_plan.depart_time_for_waypoint(
+                                    wp
+                                )
+                            ]
+                            + [tot]
+                        )
+                        base_to_target = tot - earlier_start_time
+                        earlier_arrival_time: timedelta = (
+                            base_to_target + latest_depart_time
                         )
 
-                        if rtb_time > upcoming_start_time:
+                        if earlier_arrival_time > start_time:
                             continue
 
-                        closest_cp: ControlPoint = (
-                            self.game.theater.closest_control_point(
-                                flight.from_cp.position
-                            )
+                        flight.start_type = "In Flight"
+                        start_type_changed = True
+                        logging.debug(
+                            f"Adjusting flight {flight.unit_type.name} of {flight.package.primary_task} w/ TOT of {flight.package.time_over_target} to start in air."
                         )
-                        for waypoint in flight.flight_plan.waypoints:
-                            if (
-                                not waypoint.waypoint_type
-                                == FlightWaypointType.LANDING_POINT
-                            ):
-                                continue
-
-                            flight.arrival = closest_cp
-                            planner: FlightPlanBuilder = FlightPlanBuilder(
-                                flight.package,
-                                self.game.blue if self.player else self.game.red,
-                                self.game.theater,
-                            )
-                            planner.populate_flight_plan(flight)
-
-                            landing_moved = True
-                            break
                         break
 
-                    if landing_moved:
+                    if start_type_changed:
                         break
 
     def plan_procurement(self) -> None:

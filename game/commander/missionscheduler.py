@@ -53,9 +53,6 @@ class MissionScheduler:
             margin=int(timedelta(minutes=2).total_seconds()),  # margin <= earliest
         )
         for package in self.coalition.ato.packages:
-            for flight in package.flights:
-                if flight.from_cp.is_carrier:
-                    flight.start_type = "In Flight"
             tot = TotEstimator(package).earliest_tot()
             package.time_over_target = tot
 
