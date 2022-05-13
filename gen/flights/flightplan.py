@@ -550,9 +550,10 @@ class TarCapFlightPlan(PatrollingFlightPlan):
 
     @property
     def patrol_start_time(self) -> timedelta:
-        start = self.package.escort_start_time
-        if start is not None:
-            return start + self.tot_offset
+        # tarcaps already have a lead time, they don't need to be first
+        # start = self.package.escort_start_time
+        # if start is not None:
+        #     return start + self.tot_offset
         return self.tot
 
     @property
@@ -1440,7 +1441,7 @@ class FlightPlanBuilder:
         return TarCapFlightPlan(
             package=self.package,
             flight=flight,
-            lead_time=timedelta(minutes=2),
+            lead_time=timedelta(minutes=5),
             # Note that this duration only has an effect if there are no
             # flights in the package that have requested escort. If the package
             # requests an escort the CAP flight will remain on station for the
