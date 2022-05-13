@@ -238,7 +238,9 @@ class FlightPlan:
         tot_waypoint = self.tot_waypoint
         if tot_waypoint is None:
             return None
-        return self.tot - self._travel_time_to_waypoint(tot_waypoint)
+        return self.tot_for_waypoint(tot_waypoint) - self._travel_time_to_waypoint(
+            tot_waypoint
+        )
 
     def startup_time(self) -> Optional[timedelta]:
         takeoff_time = self.takeoff_time()
@@ -273,7 +275,7 @@ class FlightPlan:
     def estimate_startup(self) -> timedelta:
         if self.flight.start_type == "Cold":
             if self.flight.client_count:
-                return timedelta(minutes=10)
+                return timedelta(minutes=6)
             else:
                 # The AI doesn't seem to have a real startup procedure.
                 return timedelta(minutes=2)
@@ -1169,9 +1171,6 @@ class FlightPlanBuilder:
         )
 
         patrol_speed = flight.unit_type.preferred_patrol_speed(patrol_alt)
-        logging.debug(
-            f"BARCAP patrol speed for {flight.unit_type.name} at {patrol_alt.feet}ft: {patrol_speed.knots} KTAS"
-        )
 
         builder = WaypointBuilder(flight, self.coalition)
         start, end = builder.race_track(start_pos, end_pos, patrol_alt)
@@ -1432,9 +1431,6 @@ class FlightPlanBuilder:
             min(self.doctrine.max_patrol_altitude, randomized_alt),
         )
         patrol_speed = flight.unit_type.preferred_patrol_speed(patrol_alt)
-        logging.debug(
-            f"TARCAP patrol speed for {flight.unit_type.name} at {patrol_alt.feet}ft: {patrol_speed.knots} KTAS"
-        )
 
         # Create points
         builder = WaypointBuilder(flight, self.coalition)

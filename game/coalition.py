@@ -26,9 +26,10 @@ from game.factions.faction import Faction
 from game.procurement import AircraftProcurementRequest, ProcurementAi
 from game.theater.bullseye import Bullseye
 from game.theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
-from gen.ato import AirTaskingOrder, Package
+from gen.ato import AirTaskingOrder
 from gen.flights.traveltime import TotEstimator
-from gen.flights.flight import Flight
+from gen.flights.flight import Flight, FlightWaypointType
+from gen.flights.flightplan import FlightPlanBuilder
 
 
 class Coalition:
@@ -209,15 +210,20 @@ class Coalition:
                     MissionScheduler(
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
-        self.offset_departure_times()
+        self.offset_carrier_departure_times()
+        # self.adjust_carrier_flight_landing_locations()
 
-    def offset_departure_times(self, offset: timedelta = timedelta(minutes=2)) -> None:
-        # to avoid congestion, we offset the departure times by a given offset,
+    def offset_carrier_departure_times(
+        self, offset: timedelta = timedelta(minutes=2)
+    ) -> None:
+        # to avoid carrier congestion, we offset the departure times by a given offset,
         # this does not account multiple flights in a package taking off at the same cp
 
         cps: dict[ControlPoint, list[Flight]] = {}
         for package in self.ato.packages:
             for flight in package.flights:
+                if not flight.from_cp.is_carrier:
+                    continue
                 if flight.from_cp not in cps:
                     cps[flight.from_cp] = []
                 cps[flight.from_cp].append(flight)
@@ -227,22 +233,88 @@ class Coalition:
             for i, flight in enumerate(flights):
                 if not i:
                     continue
-                delay = TotEstimator(flight.package).mission_start_time(flight)
+                esitmator: TotEstimator = TotEstimator(flight.package)
+                delay = esitmator.mission_start_time(flight)
 
                 for j, previous_flight in enumerate(flights[:i]):
                     if previous_flight in flight.package.flights:
                         continue
 
-                    previous_delay = TotEstimator(
+                    previouis_esitmator: TotEstimator = TotEstimator(
                         previous_flight.package
-                    ).mission_start_time(previous_flight)
+                    )
+                    previous_delay = previouis_esitmator.mission_start_time(
+                        previous_flight
+                    )
                     delta: timedelta = abs(delay - previous_delay)
 
-                    if delta < offset:
-                        self.ato.packages[
-                            self.ato.packages.index(flight.package)
-                        ].time_over_target += (offset - delta)
-                        delay += offset - delta
+                    if delta > offset:
+                        continue
+
+                    adjustment: timedelta = offset - delta
+                    flight.package.time_over_target += adjustment
+                    delay += adjustment
+
+    def adjust_carrier_flight_landing_locations(self) -> None:
+        # to avoid carrier congestion when the final flights are taking off and the early
+        # flights are landing, we check to see if filghts will be taking off by the time
+        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + tot' ish
+
+        for package in self.ato.packages:
+            for flight in package.flights:
+                if not flight.from_cp.is_carrier:
+                    continue
+
+                esitmator: TotEstimator = TotEstimator(flight.package)
+                start_time: timedelta = esitmator.mission_start_time(flight)
+                tot: timedelta = flight.flight_plan.tot
+                rtb_time: timedelta = (tot - start_time) + tot
+
+                # check if there are flights still taking off by the time you get back to the carrier
+                # err on the side of caution
+                for upcoming_package in self.ato.packages:
+
+                    landing_moved: bool = False
+                    for upcoming_flight in upcoming_package.flights:
+                        if not upcoming_flight.from_cp.is_carrier:
+                            continue
+
+                        upcoming_esitmator: TotEstimator = TotEstimator(
+                            upcoming_package
+                        )
+                        upcoming_start_time: timedelta = (
+                            upcoming_esitmator.mission_start_time(upcoming_flight)
+                        )
+
+                        if rtb_time > upcoming_start_time:
+                            continue
+
+                        closest_cp: ControlPoint = (
+                            self.game.theater.closest_control_point(
+                                flight.from_cp.position
+                            )
+                        )
+                        for waypoint in flight.flight_plan.waypoints:
+                            if (
+                                not waypoint.waypoint_type
+                                == FlightWaypointType.LANDING_POINT
+                            ):
+                                continue
+
+                            flight.arrival = closest_cp
+                            planner: FlightPlanBuilder = FlightPlanBuilder(
+                                flight.package,
+                                self.game.blue if self.player else self.game.red,
+                                self.game.theater,
+                            )
+                            planner.populate_flight_plan(flight)
+
+                            landing_moved = True
+                            break
+                        break
+
+                    if landing_moved:
+                        break
 
     def plan_procurement(self) -> None:
         # The first turn needs to buy a *lot* of aircraft to fill CAPs, so it gets much

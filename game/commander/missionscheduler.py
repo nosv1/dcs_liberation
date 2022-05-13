@@ -48,9 +48,9 @@ class MissionScheduler:
 
         start_time = start_time_generator(
             count=len(ground_attack_packages),
-            earliest=0,
+            earliest=int(timedelta(minutes=2).total_seconds()),  # earliest >= margin
             latest=int(self.desired_mission_length.total_seconds()),
-            margin=timedelta(minutes=2).total_seconds(),
+            margin=int(timedelta(minutes=2).total_seconds()),  # margin <= earliest
         )
         for package in self.coalition.ato.packages:
             tot = TotEstimator(package).earliest_tot()
@@ -89,4 +89,4 @@ class MissionScheduler:
                 # airfields to hit grounded aircraft, since they're more likely
                 # to be present. Runway and air started aircraft will be
                 # delayed until their takeoff time by AirConflictGenerator.
-                package.time_over_target = next(start_time) + package.time_over_target
+                package.time_over_target += next(start_time)
