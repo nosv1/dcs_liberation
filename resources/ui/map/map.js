@@ -412,7 +412,14 @@ class ControlPoint {
     const locationMarker = this.locationMarker(dragging);
     const destinationMarker = this.destinationMarker();
     locationMarker
-      .bindTooltip(`<h3 style="margin: 0;">${this.cp.name}</h3>`)
+      .bindTooltip(`
+        <h3 style="margin: 0;">${this.cp.name}</h3>
+        <p style="margin: 0;">
+          Aircraft: ${this.cp.aircraft_present_count}
+          </br>
+          Ground Units: ${this.cp.ground_unit_count} (max ${this.cp.ground_units_deployable} deployable)
+        </p>
+      `)
       .on("click", () => {
         this.cp.showInfoDialog();
       })

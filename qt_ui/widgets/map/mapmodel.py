@@ -126,6 +126,18 @@ class ControlPointJs(QObject):
     def name(self) -> str:
         return self.control_point.name
 
+    @Property(int, notify=statusChanged)
+    def ground_unit_count(self) -> int:
+        return self.control_point.base.total_armor
+
+    @Property(int, notify=statusChanged)
+    def ground_units_deployable(self) -> int:
+        return self.control_point.frontline_unit_count_limit
+
+    @Property(int, notify=statusChanged)
+    def aircraft_present_count(self) -> int:
+        return self.control_point.allocated_aircraft().total_present
+
     @Property(bool, notify=blueChanged)
     def blue(self) -> bool:
         return self.control_point.captured
