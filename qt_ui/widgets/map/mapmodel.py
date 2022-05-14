@@ -138,6 +138,17 @@ class ControlPointJs(QObject):
     def aircraft_present_count(self) -> int:
         return self.control_point.allocated_aircraft().total_present
 
+    @Property(str, notify=statusChanged)
+    def front_line_stances(self) -> str:
+        stances: list[str] = []
+        for enemy_cp in self.control_point.connected_points:
+            if enemy_cp.captured:
+                continue
+            for cp_id, stance in self.control_point.stances.items():
+                if cp_id == enemy_cp.id:
+                    stances.append(f"{enemy_cp.name}: {stance.name}")
+        return "</br>".join(stances) if stances else ""
+
     @Property(bool, notify=blueChanged)
     def blue(self) -> bool:
         return self.control_point.captured

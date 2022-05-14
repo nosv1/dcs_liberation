@@ -1741,8 +1741,6 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
 
         # if is StrikeFlightPlan, oppose to a CustomFlightPlan...
         if isinstance(self.flight.flight_plan, StrikeFlightPlan):
-            logging.debug(f"strike_flights_ahead: {strike_flights_ahead}")
-            logging.debug(f"targets: {len(self.flight.flight_plan.targets)}")
 
             shift_amount = int(len(self.waypoint.targets) / total_strike_flights)
             # if there are other strikes in the package, specifically, before this flight

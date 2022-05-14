@@ -65,6 +65,7 @@ class QWaitingForMissionResultWindow(QDialog):
         self.setWindowTitle("Waiting for mission completion.")
         self.setWindowIcon(QIcon("./resources/icon.png"))
         self.setMinimumHeight(570)
+        self.setMinimumWidth(1500)
 
         self.initUi()
         DebriefingFileWrittenSignal.get_instance().debriefingReceived.connect(
@@ -79,11 +80,11 @@ class QWaitingForMissionResultWindow(QDialog):
     def initUi(self):
         self.layout = QGridLayout()
 
-        header = QLabel(self)
-        header.setGeometry(0, 0, 655, 106)
-        pixmap = QPixmap("./resources/ui/conflict.png")
-        header.setPixmap(pixmap)
-        self.layout.addWidget(header, 0, 0)
+        # header = QLabel(self)
+        # header.setGeometry(0, 0, 655, 106)
+        # pixmap = QPixmap("./resources/ui/conflict.png")
+        # header.setPixmap(pixmap)
+        # self.layout.addWidget(header, 0, 0)
 
         self.gridLayout = QGridLayout()
 
@@ -102,12 +103,12 @@ class QWaitingForMissionResultWindow(QDialog):
             jinja.get_template("mission_start_EN.j2").render()
         )
         self.instructions_text.setOpenExternalLinks(True)
-        self.gridLayout.addWidget(self.instructions_text, 1, 0)
+        self.gridLayout.addWidget(self.instructions_text, 0, 0)
 
         self.briefing_text = QTextBrowser()
         with open("./mission_description_text.txt", "r") as briefing_file:
             self.briefing_text.setText(briefing_file.read())
-        self.gridLayout.addWidget(self.briefing_text, 1, 1)
+        self.gridLayout.addWidget(self.briefing_text, 0, 1)
 
         progress = QLabel("")
         progress.setAlignment(QtCore.Qt.AlignCenter)

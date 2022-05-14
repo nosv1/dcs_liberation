@@ -418,6 +418,8 @@ class ControlPoint {
           Aircraft: ${this.cp.aircraft_present_count}
           </br>
           Ground Units: ${this.cp.ground_unit_count} (max ${this.cp.ground_units_deployable} deployable)
+          </br>
+          ${this.cp.front_line_stances}
         </p>
       `)
       .on("click", () => {
