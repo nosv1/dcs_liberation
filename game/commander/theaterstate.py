@@ -196,6 +196,14 @@ class TheaterState(WorldState["TheaterState"]):
                 1 / ground_ratio
             )  # 0-1x = 0, 1-2x = 1, ... # of tarcaps needed
 
+        # put the fight where the fight is
+        front_line_cas_needed = dict(
+            sorted(front_line_cas_needed.items(), key=lambda x: x[1], reverse=True)
+        )
+        front_line_tarcaps_needed = dict(
+            sorted(front_line_tarcaps_needed.items(), key=lambda x: x[1], reverse=True)
+        )
+
         return TheaterState(
             context=context,
             barcaps_needed={
