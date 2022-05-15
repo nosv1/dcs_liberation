@@ -46,6 +46,8 @@ from dcs.task import (
     FighterSweep,
     GroundAttack,
     Nothing,
+    OptECMUsing,
+    OptFormation,
     OptROE,
     OptRTBOnBingoFuel,
     OptRTBOnOutOfAmmo,
@@ -1459,6 +1461,7 @@ class PydcsWaypointBuilder:
             FlightWaypointType.INGRESS_STRIKE: StrikeIngressBuilder,
             FlightWaypointType.INGRESS_SWEEP: SweepIngressBuilder,
             FlightWaypointType.JOIN: JoinPointBuilder,
+            FlightWaypointType.SPLIT: SplitPointBuilder,
             FlightWaypointType.LANDING_POINT: LandingPointBuilder,
             FlightWaypointType.LOITER: HoldPointBuilder,
             FlightWaypointType.PATROL: RaceTrackEndBuilder,
@@ -1513,6 +1516,7 @@ class HoldPointBuilder(PydcsWaypointBuilder):
         self.waypoint.departure_time = push_time
         loiter.stop_after_time(int(push_time.total_seconds()))
         waypoint.add_task(loiter)
+        waypoint.add_task(OptFormation.finger_four_close())
         return waypoint
 
 
@@ -1549,6 +1553,8 @@ class BaiIngressBuilder(PydcsWaypointBuilder):
             task.params["altitudeEnabled"] = False
             task.params["groupAttack"] = True
             waypoint.tasks.append(task)
+
+        waypoint.tasks.append(OptFormation.trail_open())
         return waypoint
 
 
@@ -1653,6 +1659,7 @@ class OcaRunwayIngressBuilder(PydcsWaypointBuilder):
         waypoint.tasks.append(
             BombingRunway(airport_id=target.airport.id, group_attack=True)
         )
+        waypoint.tasks.append(OptFormation.trail_open())
         return waypoint
 
 
@@ -1712,6 +1719,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
         bombing.params["altitudeEnabled"] = False
         bombing.params["groupAttack"] = True
         waypoint.tasks.append(bombing)
+        waypoint.tasks.append(OptFormation.trail_open())
         return waypoint
 
     def build_strike(self) -> MovingPoint:
@@ -1761,6 +1769,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
                 bombing.params["expend"] = "All"
             bombing.params["groupAttack"] = True
             waypoint.tasks.append(bombing)
+            waypoint.tasks.append(OptFormation.trail_open())
 
             # Register special waypoints
             self.register_special_waypoints(self.waypoint.targets)
@@ -1789,6 +1798,11 @@ class SweepIngressBuilder(PydcsWaypointBuilder):
             )
         )
 
+        if self.flight.count < 4:
+            waypoint.tasks.append(OptFormation.line_abreast_open())
+        else:
+            waypoint.tasks.append(OptFormation.spread_four_open())
+
         return waypoint
 
 
@@ -1803,10 +1817,20 @@ class JoinPointBuilder(PydcsWaypointBuilder):
                     Targets.All.Air.Planes.MultiroleFighters,
                 ],
             )
+
+            if self.flight.count < 4:
+                waypoint.tasks.append(OptFormation.line_abreast_open())
+            else:
+                waypoint.tasks.append(OptFormation.spread_four_open())
+
         elif self.flight.flight_type == FlightType.SEAD_ESCORT:
             self.configure_escort_tasks(
                 waypoint, [Targets.All.GroundUnits.AirDefence.AAA.SAMRelated]
             )
+            ecm_option = OptECMUsing(value=OptECMUsing.Values.UseIfDetectedLockByRadar)
+            waypoint.tasks.append(ecm_option)
+
+            waypoint.tasks.append(OptFormation.finger_four_open())
         return waypoint
 
     @staticmethod
@@ -1852,6 +1876,21 @@ class JoinPointBuilder(PydcsWaypointBuilder):
         # We could set this task to end at the split point. pydcs doesn't
         # currently support that task end condition though, and we don't really
         # need it.
+
+
+class SplitPointBuilder(PydcsWaypointBuilder):
+    def add_tasks(self, waypoint: MovingPoint) -> None:
+
+        if not self.flight.flight_type.is_air_to_air:
+            # Capture any non A/A type to avoid issues with SPJs that use the primary radar such as the F/A-18C.
+            # You can bully them with STT to not be able to fire radar guided missiles at you,
+            # so best choice is to not let them perform jamming for now.
+
+            # Let the AI use ECM to defend themselves.
+            ecm_option = OptECMUsing(value=OptECMUsing.Values.UseIfOnlyLockByRadar)
+            waypoint.tasks.append(ecm_option)
+
+            waypoint.tasks.append(OptFormation.finger_four_close())
 
 
 class LandingPointBuilder(PydcsWaypointBuilder):

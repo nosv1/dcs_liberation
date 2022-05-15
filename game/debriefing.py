@@ -235,6 +235,32 @@ class Debriefing:
             losses_by_type[loss.ground_object.dcs_identifier] += 1
         return losses_by_type
 
+    def ground_objects_by_type(self, player: bool) -> Dict[str, int]:
+        losses_by_type: Dict[str, int] = defaultdict(int)
+        if player:
+            losses = self.ground_losses.player_ground_objects
+        else:
+            losses = self.ground_losses.enemy_ground_objects
+        for loss in losses:
+            if loss.ground_object.control_point.captured != player:
+                continue
+
+            losses_by_type[loss.ground_object.dcs_identifier] += 1
+        return losses_by_type
+
+    def air_fields_by_type(self, player: bool) -> Dict[str, int]:
+        losses_by_type: Dict[str, int] = defaultdict(int)
+        if player:
+            losses = self.ground_losses.player_airfields
+        else:
+            losses = self.ground_losses.enemy_airfields
+        for loss in losses:
+            if not loss.is_friendly_to(player):
+                continue
+
+            losses_by_type[loss.name] = loss.status.name
+        return losses_by_type
+
     def dead_aircraft(self) -> AirLosses:
         player_losses = []
         enemy_losses = []

@@ -22,49 +22,48 @@ class LossGrid(QGridLayout):
     def __init__(self, debriefing: Debriefing, player: bool) -> None:
         super().__init__()
 
-        self.add_loss_rows(debriefing.air_losses.by_type(player), lambda u: u.name)
         self.add_loss_rows(
-            debriefing.front_line_losses_by_type(player), lambda u: str(u)
+            debriefing.air_losses.by_type(player), lambda c: f"Aircraft ({c})"
         )
         self.add_loss_rows(
-            debriefing.convoy_losses_by_type(player), lambda u: f"{u} from convoy"
+            debriefing.front_line_losses_by_type(player), lambda c: f"Front line ({c})"
         )
         self.add_loss_rows(
-            debriefing.cargo_ship_losses_by_type(player),
-            lambda u: f"{u} from cargo ship",
+            debriefing.convoy_losses_by_type(player), lambda c: f"Convoy ({c})"
         )
         self.add_loss_rows(
-            debriefing.airlift_losses_by_type(player), lambda u: f"{u} from airlift"
+            debriefing.cargo_ship_losses_by_type(player), lambda c: f"Cargo ship ({c})"
         )
-        self.add_loss_rows(debriefing.building_losses_by_type(player), lambda u: u)
-
-        # TODO: Display dead ground object units and runways.
+        self.add_loss_rows(
+            debriefing.airlift_losses_by_type(player), lambda c: f"Airlift ({c})"
+        )
+        self.add_loss_rows(
+            debriefing.ground_objects_by_type(player),
+            lambda c: f"Objective areas ({c})",
+        )
+        self.add_loss_rows(
+            debriefing.building_losses_by_type(player), lambda c: f"Buildings ({c})"
+        )
+        self.add_loss_rows(
+            debriefing.air_fields_by_type(player), lambda c: f"Air fields ({c})"
+        )
 
         # self.removeWidget(self.itemAtPosition(self.rowCount() - 1, 0))  # FIXME... guess this doesn't work to remove the spacer row at the end
         self.setRowStretch(self.rowCount(), 1)
 
-    def add_loss_rows(self, losses: Dict[T, int], make_name: Callable[[T], str]):
+    def add_loss_rows(self, losses: Dict[T, int], header: Callable[[T], str]):
 
         if losses:
-            loss_type = list(losses.keys())[0].__class__.__name__  # -> AircraftUnitType
-            loss_type = " ".join(
-                re.findall(r"[A-Z][^A-Z]*", loss_type)[:-1]
-            )  # split by capital letters and remove 'Type'
             total_losses_of_type = sum(losses.values())
             self.addWidget(
-                QLabel(f"<b>{loss_type} ({total_losses_of_type})</b>"),
+                QLabel(f"<b>{header(total_losses_of_type)}</b>"),
                 self.rowCount(),
                 0,
             )
 
         for unit_type, count in losses.items():
             row = self.rowCount()
-            try:
-                name = make_name(unit_type)
-            except AttributeError:
-                logging.exception(f"Could not make unit name for {unit_type}")
-                name = unit_type.id
-            self.addWidget(QLabel(f"    {name}"), row, 0)
+            self.addWidget(QLabel(f"    {unit_type}"), row, 0)
             self.addWidget(QLabel(str(count)), row, 1)
 
         # add spacer row

@@ -123,7 +123,7 @@ VERSION = _build_version_string()
 #: Version 9.1
 #: * Campaign files can optionally define a start date with
 #:   `recommended_start_date: YYYY-MM-DD`.
-CAMPAIGN_FORMAT_VERSION = (9, 1)
+CAMPAIGN_FORMAT_VERSION = (10, 1)
 
 # Version 5.2.0 of DCS Liberation also supports Campaigns of Version 10.0
 SUPPORTED_CAMPAIGN_VERSION = (10, 0)
