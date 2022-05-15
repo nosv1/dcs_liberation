@@ -421,7 +421,10 @@ class GenericCarrierGenerator(GenericGroundObjectGenerator[GenericCarrierGroundO
                 CVN_73,
                 CVN_75,
             ]:
-                link4 = self.radio_registry.alloc_uhf()
+                # link4 = self.radio_registry.alloc_uhf()
+                # FIXME this is hack cause multiplayer broke af
+                self.radio_registry.reserve(RadioFrequency(336000000))
+                link4 = RadioFrequency(336000000)
             self.activate_beacons(ship_group, tacan, tacan_callsign, icls, link4)
             self.add_runway_data(
                 brc or Heading.from_degrees(0), atc, tacan, tacan_callsign, icls
