@@ -25,7 +25,7 @@ pluggy==0.13.1
 pre-commit==2.10.1
 py==1.10.0
 # -e git+https://github.com/dcs-liberation/dcs@6bcad19cdf71c892806b04790d379fc81f88c58f#egg=pydcs
--e git+https://github.com/nosv1/pydcs@dc518a26c805ba3c26dc4baeb14e69e16f166b70#egg=pydcs
+-e git+https://github.com/nosv1/pydcs@9a09d8658b955d0730e7cb439bac3987ccf2a7c1#egg=pydcs
 pyinstaller==4.9
 pyinstaller-hooks-contrib==2022.1
 pyparsing==2.4.7
