@@ -145,8 +145,8 @@ end
 activeWeapons = {}
 local function onEvent(event)
 
-    if event.id == world.event.S_EVENT_HIT and event.initator then
-        damaged_objects[#damaged_objects + 1] = event.initiator.getName(event.initiator)
+    if event.id == world.event.S_EVENT_HIT and event.target then
+        damaged_objects[#damaged_objects + 1] = event.target.getName(event.target)
         write_state()
     end
 
