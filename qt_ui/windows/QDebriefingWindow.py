@@ -47,6 +47,9 @@ class LossGrid(QGridLayout):
         self.add_loss_rows(
             debriefing.air_fields_by_type(player), lambda c: f"Air fields ({c})"
         )
+        self.add_loss_rows(
+            debriefing.bafoons.by_type(player), lambda c: f"Bafoons ({c})"
+        )
 
         # self.removeWidget(self.itemAtPosition(self.rowCount() - 1, 0))  # FIXME... guess this doesn't work to remove the spacer row at the end
         self.setRowStretch(self.rowCount(), 1)

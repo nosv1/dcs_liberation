@@ -4,7 +4,7 @@ local WRITESTATE_SCHEDULE_IN_SECONDS = 60
 logger = mist.Logger:new("DCSLiberation", "info")
 logger:info("Check that json.lua is loaded : json = "..tostring(json))
 
-damaged_units = {} -- damaged aircraft will be added via S_EVENT_HIT event
+damaged_objects = {} -- damaged units will be added via S_EVENT_HIT event
 killed_aircrafts = {} -- killed aircraft will be added via S_EVENT_CRASH event
 killed_ground_units = {} -- killed units will be added via S_EVENT_DEAD event
 base_capture_events = {}
@@ -31,7 +31,7 @@ function write_state()
 
     local fp = io.open(_debriefing_file_location, 'w')
     local game_state = {
-        ["damaged_units"] = damaged_units,
+        ["damaged_objects"] = damaged_objects,
         ["killed_aircrafts"] = killed_aircrafts,
         ["killed_ground_units"] = killed_ground_units,
         ["base_capture_events"] = base_capture_events,
@@ -146,7 +146,7 @@ activeWeapons = {}
 local function onEvent(event)
 
     if event.id == world.event.S_EVENT_HIT and event.initator then
-        damaged_units[#damaged_units + 1] = event.initiator.getName(event.initiator)
+        damaged_objects[#damaged_objects + 1] = event.initiator.getName(event.initiator)
         write_state()
     end
 
