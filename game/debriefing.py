@@ -275,16 +275,15 @@ class Debriefing:
             if aircraft is None:
                 logging.error(f"Could not find Flight matching {unit_name}")
                 continue
-            if aircraft not in self.state_data.damaged_objects:
+            if unit_name not in self.state_data.damaged_objects:
                 logging.debug(
-                    f"{aircraft.flight.unit_type.name} was not damaged and, therefore, is not counted as destroyed..."
+                    f"{unit_name} was not damaged and, therefore, it is not counted as destroyed..."
                 )
                 if aircraft.flight.departure.captured:
                     player_bafoons.append(aircraft)
                 else:
                     enemy_bafoons.append(aircraft)
-                # continue
-                # TODO see if this works before not appending it to losses
+                continue
             if aircraft.flight.departure.captured:
                 player_losses.append(aircraft)
             else:
