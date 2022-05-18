@@ -192,8 +192,8 @@ class TheaterState(WorldState["TheaterState"]):
             front_line_cas_needed[front_line] = int(
                 ground_ratio + 1
             )  # 0-1x = 1, 1-2x = 2, ... # of cas needed
-            front_line_tarcaps_needed[front_line] = int(
-                1 / ground_ratio
+            front_line_tarcaps_needed[front_line] = (
+                int(1 / ground_ratio) if ground_ratio else 0
             )  # 0-1x = 0, 1-2x = 1, ... # of tarcaps needed
 
         # put the fight where the fight is
