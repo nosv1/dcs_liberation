@@ -214,6 +214,7 @@ class Coalition:
                     ).schedule_missions()
         self.offset_carrier_departure_times()
         self.adjust_carrier_flight_spawns_based_on_rtb_times()
+        self.spawn_large_aircraft_in_air()
 
     def offset_carrier_departure_times(
         self, offset: timedelta = timedelta(minutes=2.5)
@@ -299,13 +300,26 @@ class Coalition:
 
                         flight.start_type = "In Flight"
                         start_type_changed = True
-                        logging.debug(
-                            f"Adjusting flight {flight.unit_type.name} of {flight.package.primary_task}, w/ TOT of {flight.package.time_over_target} and start time of {esitmator.mission_start_time(flight)}, to start in air."
+                        logging.info(
+                            f"Spawning flight in air... Earlier flight, {earlier_flight.unit_type.name}, is estimated to arrive before {flight.unit_type.name} of {flight.package.primary_task}, w/ TOT of {flight.package.time_over_target} and start time of {esitmator.mission_start_time(flight)} is set to take off."
                         )
                         break
 
                     if start_type_changed:
                         break
+
+    def spawn_large_aircraft_in_air(self) -> None:
+        # FIXME: this is a hack to avoid large aircraft from crashing at the end fo the runway
+        # The problem is sometimes large aircraft don't have enough runway to make it in the air alive, so we spawn them in the air to avoid this
+        # but, this means we can't hit them on the ramp if there's an OCA/Aircraft scheduled... we continue anwyays
+
+        for package in self.ato.packages:
+            for flight in package.flights:
+                if flight.unit_type.dcs_unit_type.large_parking_slot:
+                    flight.start_type = "In Flight"
+                    logging.info(
+                        f"Spawning flight in air... {flight.unit_type.name} of {flight.package.primary_task}, w/ TOT of {flight.package.time_over_target} and start time of {TotEstimator.mission_start_time(flight)}, is large."
+                    )
 
     def plan_procurement(self) -> None:
         # The first turn needs to buy a *lot* of aircraft to fill CAPs, so it gets much
