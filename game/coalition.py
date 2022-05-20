@@ -212,6 +212,7 @@ class Coalition:
                     MissionScheduler(
                         self, self.game.settings.desired_player_mission_duration
                     ).schedule_missions()
+
         self.offset_carrier_departure_times()
         self.adjust_carrier_flight_spawns_based_on_rtb_times()
         self.spawn_large_aircraft_in_air()
@@ -261,7 +262,7 @@ class Coalition:
     def adjust_carrier_flight_spawns_based_on_rtb_times(self) -> None:
         # to avoid carrier congestion when the final flights are taking off and the early
         # flights are landing, we check to see if filghts will be taking off by the time
-        # ofther flights are coming to land, simply 'rtb_time = tot - start_time + some_tot_duration + tot' ish
+        # other flights are coming to land, simply 'rtb_time = tot - start_time + some_tot_duration + tot' ish
 
         for package in self.ato.packages:
             for flight in package.flights:

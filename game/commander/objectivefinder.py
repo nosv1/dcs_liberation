@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import operator
 from collections import Iterator, Iterable
-from typing import TypeVar, TYPE_CHECKING
+from typing import TypeVar, TYPE_CHECKING, Union
 
 from game.theater import (
     ControlPoint,
@@ -69,13 +69,19 @@ class ObjectiveFinder:
         return self._targets_by_range(self.enemy_ships())
 
     def _targets_by_range(
-        self, targets: Iterable[MissionTargetType]
+        self, targets: Iterable[MissionTargetType], consider_threat_range: bool = False
     ) -> Iterator[MissionTargetType]:
         target_ranges: list[tuple[MissionTargetType, float]] = []
         for target in targets:
             ranges: list[float] = []
             for cp in self.friendly_control_points():
-                ranges.append(target.distance_to(cp))
+                target_range = target.distance_to(cp)
+
+                if consider_threat_range:
+                    target: Union[IadsGroundObject, NavalGroundObject]
+                    target_range -= target.max_threat_range().meters
+
+                ranges.append(target_range)
             target_ranges.append((target, min(ranges)))
 
         target_ranges = sorted(target_ranges, key=operator.itemgetter(1))

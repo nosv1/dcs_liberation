@@ -177,24 +177,34 @@ class TheaterState(WorldState["TheaterState"]):
         barcap_duration = coalition.doctrine.cap_duration.total_seconds()
         barcap_rounds = math.ceil(mission_duration / barcap_duration)
 
-        # Plan front line cas and tarcaps based on the ratio of enemy cp vs friendly cp
+        # Plan front line cas and tarcaps based on the difference of enemy cp vs friendly cp
+        # where we assume 1 flight of 2 sorties can take out >= 8 ground targets
         # high enemy low friendly, more cas
         # high friendly low enemy, more tarcaps
         front_lines = list(finder.front_lines())
         front_line_cas_needed: dict[FrontLine, int] = {}
         front_line_tarcaps_needed: dict[FrontLine, int] = {}
+
+        ground_targets_per_flight = 8
         for front_line in front_lines:
             enemy_cp = front_line.control_point_friendly_to(player=not player)
             friendly_cp = front_line.control_point_friendly_to(player=player)
-            ground_ratio = enemy_cp.base.total_armor / (
-                friendly_cp.base.total_armor if friendly_cp.base.total_armor else 1
-            )
-            front_line_cas_needed[front_line] = int(
-                ground_ratio + 1
-            )  # 0-1x = 1, 1-2x = 2, ... # of cas needed
-            front_line_tarcaps_needed[front_line] = (
-                int(1 / ground_ratio) if ground_ratio else 0
-            )  # 0-1x = 0, 1-2x = 1, ... # of tarcaps needed
+            ground_difference = enemy_cp.base.total_armor - friendly_cp.base.total_armor
+
+            # as long as there are targets, a cas is needed
+            if enemy_cp.base.total_armor > 0:
+                # ground difference of 1-8 = 1 cas needed, 9-16 = 2, etc.
+                front_line_cas_needed[front_line] = math.ceil(
+                    max(ground_difference, 1) / ground_targets_per_flight
+                )
+
+            # as long as there are friendly units and more friendly than enemy, a tarcap is needed
+            if friendly_cp.base.total_armor > 0 and ground_difference < 0:
+                # ground difference of 9-16 = 1 tarcap needed, 17-24 = 2, etc.
+                front_line_tarcaps_needed[front_line] = math.ceil(
+                    (abs(ground_difference) - ground_targets_per_flight)
+                    / ground_targets_per_flight
+                )
 
         # put the fight where the fight is
         front_line_cas_needed = dict(

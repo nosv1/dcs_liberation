@@ -32,10 +32,10 @@ class PlanNextAction(CompoundTask[TheaterState]):
 
     def each_valid_method(self, state: TheaterState) -> Iterator[Method[TheaterState]]:
         yield [TheaterSupport()]
+        yield [DegradeIads()]
         yield [DefendBases()]
         yield [InterdictReinforcements()]
         yield [ProtectAirSpace()]
-        yield [DegradeIads()]
         yield [AttackBuildings()]
         yield [CaptureBases()]
         yield [AttackGarrisons()]

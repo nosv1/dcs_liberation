@@ -23,15 +23,21 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             return False
 
         try:
+            # is air defense
             target_priority: float = 1 - (
                 state.threatening_air_defenses.index(self.target)
                 / len(state.threatening_air_defenses)
             )
         except ValueError:
-            target_priority: float = 1 - (
-                state.detecting_air_defenses.index(self.target)
-                / len(state.detecting_air_defenses)
-            )
+            # is detector, we care 50% less about these...
+            target_priority: float = (
+                1
+                - (
+                    state.detecting_air_defenses.index(self.target)
+                    / len(state.detecting_air_defenses)
+                )
+            ) / 2
+
         air_ratio: float = state.get_air_ratio()
         r_air: float = random.random()
 

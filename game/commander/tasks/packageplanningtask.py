@@ -8,6 +8,7 @@ from enum import unique, IntEnum, auto
 from typing import TYPE_CHECKING, Optional, Generic, TypeVar, Iterator, Union
 
 from game.commander.missionproposals import ProposedFlight, EscortType, ProposedMission
+from game.commander.objectivefinder import ObjectiveFinder
 from game.commander.packagefulfiller import PackageFulfiller
 from game.commander.tasks.theatercommandertask import TheaterCommanderTask
 from game.commander.theaterstate import TheaterState
@@ -141,7 +142,7 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
             target_ranges.append((target, distance_to_threat))
 
         # TODO: Prioritize IADS by vulnerability?
-        target_ranges = sorted(target_ranges, key=operator.itemgetter(1))
+        target_ranges = sorted(target_ranges, key=operator.itemgetter(1), reverse=True)
         for target, _range in target_ranges:
             yield target
 
@@ -171,4 +172,14 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
                 threatened = True
                 if iads_threat not in state.threatening_air_defenses:
                     state.threatening_air_defenses.append(iads_threat)
+
+        finder = ObjectiveFinder(
+            state.context.coalition.game, state.context.coalition.player
+        )
+        state.threatening_air_defenses = list(
+            finder._targets_by_range(state.threatening_air_defenses, True)
+        )
+        state.detecting_air_defenses = list(
+            finder._targets_by_range(state.detecting_air_defenses)
+        )
         return not threatened

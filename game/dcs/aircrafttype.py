@@ -213,9 +213,9 @@ class AircraftType(UnitType[Type[FlyingType]]):
                 altitude_for_lowest_speed
                 + (altitude_for_highest_speed - altitude_for_lowest_speed) * factor
             )
-            logging.debug(
-                f"Preferred patrol altitude for {self.dcs_unit_type.id}: {altitude.feet}"
-            )
+            # logging.debug(
+            #     f"Preferred patrol altitude for {self.dcs_unit_type.id}: {altitude.feet}"
+            # )
             rounded_altitude = feet(round(1000 * round(altitude.feet / 1000)))
             return max(
                 altitude_for_lowest_speed,
