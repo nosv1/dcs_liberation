@@ -32,5 +32,5 @@ class PlanAntiShip(PackagePlanningTask[NavalGroundObject]):
         state.eliminate_ship(self.target)
 
     def propose_flights(self, state: TheaterState) -> None:
-        self.propose_flight(FlightType.ANTISHIP, 2)
+        self.propose_flight(FlightType.ANTISHIP, 4)
         self.propose_flight(FlightType.ESCORT, 2, EscortType.AirToAir)
