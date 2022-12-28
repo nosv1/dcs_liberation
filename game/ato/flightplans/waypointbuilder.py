@@ -23,7 +23,7 @@ from game.theater import (
     TheaterGroundObject,
     TheaterUnit,
 )
-from game.utils import Distance, meters, nautical_miles
+from game.utils import Distance, feet, meters, nautical_miles
 
 if TYPE_CHECKING:
     from game.coalition import Coalition
@@ -54,7 +54,7 @@ class WaypointBuilder:
 
     @property
     def is_helo(self) -> bool:
-        return self.flight.unit_type.dcs_unit_type.helicopter
+        return self.flight.is_helo
 
     def takeoff(self, departure: ControlPoint) -> FlightWaypoint:
         """Create takeoff waypoint for the given arrival airfield or carrier.
@@ -204,6 +204,19 @@ class WaypointBuilder:
             pretty_name="Refuel",
         )
 
+    def recovery_tanker(self, position: Point) -> FlightWaypoint:
+        alt_type: AltitudeReference = "BARO"
+
+        return FlightWaypoint(
+            "RECOVERY",
+            FlightWaypointType.RECOVERY_TANKER,
+            position,
+            feet(6000),
+            alt_type,
+            description="Recovery tanker for aircraft carriers",
+            pretty_name="Recovery",
+        )
+
     def split(self, position: Point) -> FlightWaypoint:
         alt_type: AltitudeReference = "BARO"
         if self.is_helo:
@@ -302,6 +315,16 @@ class WaypointBuilder:
 
     def oca_strike_area(self, target: MissionTarget) -> FlightWaypoint:
         return self._target_area(f"ATTACK {target.name}", target, flyover=True)
+
+    def assault_area(self, target: MissionTarget) -> FlightWaypoint:
+        """A destination waypoint used by air-assault ground troops.
+
+        This waypoint is an implementation detail for CTLD and should not be followed by
+        aircraft.
+        """
+        # TODO: Add a property that can hide this waypoint from the player's flight
+        # plan.
+        return self._target_area(f"ASSAULT {target.name}", target)
 
     @staticmethod
     def _target_area(
@@ -491,37 +514,50 @@ class WaypointBuilder:
         )
 
     @staticmethod
-    def pickup(control_point: ControlPoint) -> FlightWaypoint:
-        """Creates a cargo pickup waypoint.
-
-        Args:
-            control_point: Pick up location.
+    def pickup_zone(pick_up: MissionTarget) -> FlightWaypoint:
+        """Creates a pickup landing zone waypoint
+        This waypoint is used to generate the Trigger Zone used for AirAssault and
+        AirLift using the CTLD plugin (see LogisticsGenerator)
         """
         return FlightWaypoint(
-            "PICKUP",
-            FlightWaypointType.PICKUP,
-            control_point.position,
+            "PICKUPZONE",
+            FlightWaypointType.PICKUP_ZONE,
+            pick_up.position,
             meters(0),
             "RADIO",
-            description=f"Pick up cargo from {control_point}",
-            pretty_name="Pick up location",
+            description=f"Pick up cargo from {pick_up.name}",
+            pretty_name="Pick-up zone",
         )
 
     @staticmethod
-    def drop_off(control_point: ControlPoint) -> FlightWaypoint:
-        """Creates a cargo drop-off waypoint.
-
-        Args:
-            control_point: Drop-off location.
+    def dropoff_zone(drop_off: MissionTarget) -> FlightWaypoint:
+        """Creates a dropoff landing zone waypoint
+        This waypoint is used to generate the Trigger Zone used for AirAssault and
+        AirLift using the CTLD plugin (see LogisticsGenerator)
         """
         return FlightWaypoint(
-            "DROP OFF",
-            FlightWaypointType.PICKUP,
+            "DROPOFFZONE",
+            FlightWaypointType.DROPOFF_ZONE,
+            drop_off.position,
+            meters(0),
+            "RADIO",
+            description=f"Drop off cargo at {drop_off.name}",
+            pretty_name="Drop-off zone",
+        )
+
+    @staticmethod
+    def cargo_stop(control_point: ControlPoint) -> FlightWaypoint:
+        """Creates a cargo stop waypoint.
+        This waypoint is used by AirLift as a landing and stopover waypoint
+        """
+        return FlightWaypoint(
+            "CARGOSTOP",
+            FlightWaypointType.CARGO_STOP,
             control_point.position,
             meters(0),
             "RADIO",
-            description=f"Drop off cargo at {control_point}",
-            pretty_name="Drop off location",
+            description=f"Stop for cargo at {control_point.name}",
+            pretty_name="Cargo stop",
             control_point=control_point,
         )
 

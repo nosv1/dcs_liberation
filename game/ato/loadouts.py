@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import datetime
+import logging
 from collections.abc import Iterable
-from typing import Iterator, Mapping, Optional, TYPE_CHECKING
+from typing import Iterator, Mapping, Optional, TYPE_CHECKING, Type
+
+from dcs.unittype import FlyingType
 
 from game.data.weapons import Pylon, Weapon, WeaponType
 from game.dcs.aircrafttype import AircraftType
+from .flighttype import FlightType
 
 if TYPE_CHECKING:
     from .flight import Flight
@@ -103,6 +107,10 @@ class Loadout:
 
     @classmethod
     def iter_for(cls, flight: Flight) -> Iterator[Loadout]:
+        return cls.iter_for_aircraft(flight.unit_type)
+
+    @classmethod
+    def iter_for_aircraft(cls, aircraft: AircraftType) -> Iterator[Loadout]:
         # Dict of payload ID (numeric) to:
         #
         # {
@@ -111,20 +119,28 @@ class Loadout:
         #       {"CLSID": class ID, "num": pylon number}
         #   "tasks": List (as a dict) of task IDs the payload is used by.
         # }
-        payloads = flight.unit_type.dcs_unit_type.load_payloads()
+        payloads = aircraft.dcs_unit_type.load_payloads()
         for payload in payloads.values():
             name = payload["name"]
             pylons = payload["pylons"]
+            try:
+                pylon_assignments = {
+                    p["num"]: Weapon.with_clsid(p["CLSID"]) for p in pylons.values()
+                }
+            except KeyError:
+                logging.exception(
+                    "Ignoring %s loadout with invalid weapons: %s", aircraft.name, name
+                )
+                continue
+
             yield Loadout(
                 name,
-                {p["num"]: Weapon.with_clsid(p["CLSID"]) for p in pylons.values()},
+                pylon_assignments,
                 date=None,
             )
 
     @classmethod
-    def default_loadout_names_for(cls, flight: Flight) -> Iterator[str]:
-        from game.ato.flighttype import FlightType
-
+    def default_loadout_names_for(cls, task: FlightType) -> Iterator[str]:
         # This is a list of mappings from the FlightType of a Flight to the type of
         # payload defined in the resources/payloads/UNIT_TYPE.lua file. A Flight has no
         # concept of a PyDCS task, so COMMON_OVERRIDE cannot be used here. This is used
@@ -164,23 +180,36 @@ class Loadout:
         loadout_names[FlightType.DEAD].extend(loadout_names[FlightType.BAI])
         # OCA/Runway falls back to Strike
         loadout_names[FlightType.OCA_RUNWAY].extend(loadout_names[FlightType.STRIKE])
-        yield from loadout_names[flight.flight_type]
+        yield from loadout_names[task]
 
     @classmethod
     def default_for(cls, flight: Flight) -> Loadout:
+        return cls.default_for_task_and_aircraft(
+            flight.flight_type, flight.unit_type.dcs_unit_type
+        )
+
+    @classmethod
+    def default_for_task_and_aircraft(
+        cls, task: FlightType, dcs_unit_type: Type[FlyingType]
+    ) -> Loadout:
         # Iterate through each possible payload type for a given aircraft.
         # Some aircraft have custom loadouts that in aren't the standard set.
-        for name in cls.default_loadout_names_for(flight):
+        for name in cls.default_loadout_names_for(task):
             # This operation is cached, but must be called before load_by_name will
             # work.
-            flight.unit_type.dcs_unit_type.load_payloads()
-            payload = flight.unit_type.dcs_unit_type.loadout_by_name(name)
+            dcs_unit_type.load_payloads()
+            payload = dcs_unit_type.loadout_by_name(name)
             if payload is not None:
-                return Loadout(
-                    name,
-                    {i: Weapon.with_clsid(d["clsid"]) for i, d in payload},
-                    date=None,
-                )
+                try:
+                    pylons = {i: Weapon.with_clsid(d["clsid"]) for i, d in payload}
+                except KeyError:
+                    logging.exception(
+                        "Ignoring %s loadout with invalid weapons: %s",
+                        dcs_unit_type.id,
+                        name,
+                    )
+                    continue
+                return Loadout(name, pylons, date=None)
 
         # TODO: Try group.load_task_default_loadout(loadout_for_task)
         return cls.empty_loadout()

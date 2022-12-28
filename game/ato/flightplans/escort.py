@@ -16,8 +16,8 @@ class EscortFlightPlan(FormationAttackFlightPlan):
         return Builder
 
 
-class Builder(FormationAttackBuilder):
-    def build(self) -> FormationAttackLayout:
+class Builder(FormationAttackBuilder[EscortFlightPlan, FormationAttackLayout]):
+    def layout(self) -> FormationAttackLayout:
         assert self.package.waypoints is not None
 
         builder = WaypointBuilder(self.flight, self.coalition)
@@ -27,9 +27,7 @@ class Builder(FormationAttackBuilder):
         hold = builder.hold(self._hold_point())
         join = builder.join(self.package.waypoints.join)
         split = builder.split(self.package.waypoints.split)
-        refuel = None
-        if self.package.waypoints.refuel is not None:
-            refuel = builder.refuel(self.package.waypoints.refuel)
+        refuel = builder.refuel(self.package.waypoints.refuel)
 
         return FormationAttackLayout(
             departure=builder.takeoff(self.flight.departure),
@@ -43,7 +41,7 @@ class Builder(FormationAttackBuilder):
             split=split,
             refuel=refuel,
             nav_from=builder.nav_path(
-                split.position,
+                refuel.position,
                 self.flight.arrival.position,
                 self.doctrine.ingress_altitude,
             ),
@@ -51,3 +49,6 @@ class Builder(FormationAttackBuilder):
             divert=builder.divert(self.flight.divert),
             bullseye=builder.bullseye(),
         )
+
+    def build(self) -> EscortFlightPlan:
+        return EscortFlightPlan(self.flight, self.layout())

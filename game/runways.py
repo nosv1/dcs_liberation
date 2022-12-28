@@ -1,13 +1,13 @@
 """Runway information and selection."""
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Iterator, Optional, TYPE_CHECKING
 
-from dcs.terrain.terrain import Airport
+from dcs.terrain.terrain import Airport, RunwayApproach
 
-from game.airfields import AirfieldData
+from game.atcdata import AtcData
+from game.dcs.beacons import BeaconType, Beacons
 from game.radio.radios import RadioFrequency
 from game.radio.tacan import TacanChannel
 from game.utils import Heading
@@ -29,40 +29,42 @@ class RunwayData:
     icls: Optional[int] = None
 
     @classmethod
-    def for_airfield(
+    def for_pydcs_runway_runway(
         cls,
         theater: ConflictTheater,
         airport: Airport,
-        runway_heading: Heading,
-        runway_name: str,
+        runway: RunwayApproach,
     ) -> RunwayData:
         """Creates RunwayData for the given runway of an airfield.
 
         Args:
             theater: The theater the airport is in.
             airport: The airfield the runway belongs to.
-            runway_heading: Heading of the runway.
-            runway_name: Identifier of the runway to use. e.g. "03" or "20L".
+            runway: The pydcs runway.
         """
         atc: Optional[RadioFrequency] = None
         tacan: Optional[TacanChannel] = None
         tacan_callsign: Optional[str] = None
         ils: Optional[RadioFrequency] = None
-        try:
-            airfield = AirfieldData.for_airport(theater, airport)
-            if airfield.atc is not None:
-                atc = airfield.atc.uhf
-            else:
-                atc = None
-            tacan = airfield.tacan
-            tacan_callsign = airfield.tacan_callsign
-            ils = airfield.ils_freq(runway_name)
-        except KeyError:
-            logging.warning(f"No airfield data for {airport.name} ({airport.id}")
+        atc_radio = AtcData.from_pydcs(airport)
+        if atc_radio is not None:
+            atc = atc_radio.uhf
+
+        for beacon_data in airport.beacons:
+            beacon = Beacons.with_id(beacon_data.id, theater)
+            if beacon.is_tacan:
+                tacan = beacon.tacan_channel
+                tacan_callsign = beacon.callsign
+
+        for beacon_data in runway.beacons:
+            beacon = Beacons.with_id(beacon_data.id, theater)
+            if beacon.beacon_type is BeaconType.BEACON_TYPE_ILS_GLIDESLOPE:
+                ils = beacon.frequency
+
         return cls(
             airfield_name=airport.name,
-            runway_heading=runway_heading,
-            runway_name=runway_name,
+            runway_heading=Heading(runway.heading),
+            runway_name=runway.name,
             atc=atc,
             tacan=tacan,
             tacan_callsign=tacan_callsign,
@@ -74,20 +76,16 @@ class RunwayData:
         cls, theater: ConflictTheater, airport: Airport
     ) -> Iterator[RunwayData]:
         for runway in airport.runways:
-            runway_number = runway.heading // 10
-            runway_side = ["", "L", "R"][runway.leftright]
-            runway_name = f"{runway_number:02}{runway_side}"
-            yield cls.for_airfield(
-                theater, airport, Heading.from_degrees(runway.heading), runway_name
+            yield cls.for_pydcs_runway_runway(
+                theater,
+                airport,
+                runway.main,
             )
-
-            # pydcs only exposes one runway per physical runway, so to expose
-            # both sides of the runway we need to generate the other.
-            heading = Heading.from_degrees(runway.heading).opposite
-            runway_number = heading.degrees // 10
-            runway_side = ["", "R", "L"][runway.leftright]
-            runway_name = f"{runway_number:02}{runway_side}"
-            yield cls.for_airfield(theater, airport, heading, runway_name)
+            yield cls.for_pydcs_runway_runway(
+                theater,
+                airport,
+                runway.opposite,
+            )
 
 
 class RunwayAssigner:

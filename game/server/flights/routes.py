@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends
 from shapely.geometry import LineString, Point as ShapelyPoint
 
 from game import Game
-from game.ato.flightplans.cas import CasFlightPlan
-from game.ato.flightplans.patrolling import PatrollingFlightPlan
+from game.ato.flightplans.uizonedisplay import UiZoneDisplay
 from game.server import GameContext
 from game.server.flights.models import FlightJs
 from game.server.leaflet import LeafletPoly, ShapelyUtil
@@ -39,19 +38,12 @@ def commit_boundary(
     flight_id: UUID, game: Game = Depends(GameContext.require)
 ) -> LeafletPoly:
     flight = game.db.flights.get(flight_id)
-    if not isinstance(flight.flight_plan, PatrollingFlightPlan):
+    if not isinstance(flight.flight_plan, UiZoneDisplay):
         return []
-    start = flight.flight_plan.layout.patrol_start
-    end = flight.flight_plan.layout.patrol_end
-    if isinstance(flight.flight_plan, CasFlightPlan):
-        center = flight.flight_plan.layout.target.position
-        commit_center = ShapelyPoint(center.x, center.y)
+    zone = flight.flight_plan.ui_zone()
+    if len(zone.points) == 1:
+        center = ShapelyPoint(zone.points[0].x, zone.points[0].y)
     else:
-        commit_center = LineString(
-            [
-                ShapelyPoint(start.x, start.y),
-                ShapelyPoint(end.x, end.y),
-            ]
-        )
-    bubble = commit_center.buffer(flight.flight_plan.engagement_distance.meters)
+        center = LineString([ShapelyPoint(p.x, p.y) for p in zone.points])
+    bubble = center.buffer(zone.radius.meters)
     return ShapelyUtil.poly_to_leaflet(bubble, game.theater)

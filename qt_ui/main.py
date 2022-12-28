@@ -2,7 +2,6 @@ import argparse
 import logging
 import os
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -13,7 +12,7 @@ from PySide2.QtGui import QPixmap
 from PySide2.QtWidgets import QApplication, QCheckBox, QSplashScreen
 from dcs.payloads import PayloadDirectories
 
-from game import Game, VERSION, persistency
+from game import Game, VERSION, logging_config, persistency
 from game.campaignloader.campaign import Campaign, DEFAULT_BUDGET
 from game.data.weapons import Pylon, Weapon, WeaponGroup
 from game.dcs.aircrafttype import AircraftType
@@ -27,9 +26,9 @@ from pydcs_extensions import load_mods
 from qt_ui import (
     liberation_install,
     liberation_theme,
-    logging_config,
     uiconstants,
 )
+from qt_ui.uiflags import UiFlags
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.QLiberationWindow import QLiberationWindow
 from qt_ui.windows.preferences.QLiberationFirstStartWindow import (
@@ -63,7 +62,7 @@ def on_game_load(game: Game | None) -> None:
     EventStream.put_nowait(GameUpdateEvents().game_loaded(game))
 
 
-def run_ui(game: Game | None, dev: bool) -> None:
+def run_ui(game: Game | None, ui_flags: UiFlags) -> None:
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"  # Potential fix for 4K screens
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -103,11 +102,6 @@ def run_ui(game: Game | None, dev: bool) -> None:
     splash = QSplashScreen(pixmap)
     splash.show()
 
-    # Developers are launching the game in a loop hundreds of times. We've read it.
-    if not dev:
-        # Give enough time to read splash screen
-        time.sleep(3)
-
     # Once splash screen is up : load resources & setup stuff
     uiconstants.load_icons()
     uiconstants.load_event_icons()
@@ -129,7 +123,7 @@ def run_ui(game: Game | None, dev: bool) -> None:
             message_box.setWindowTitle("No DCS installation directory.")
             message_box.setText(
                 "The DCS Installation directory is not set correctly. "
-                "This will prevent DCS Liberation to work properly as the MissionScripting "
+                "This will prevent DCS Liberation from working properly, as the MissionScripting "
                 "file will not be modified."
                 "<br/><br/>To solve this problem, you can set the Installation directory "
                 "within the preferences menu. You can also manually edit or replace the "
@@ -157,7 +151,7 @@ def run_ui(game: Game | None, dev: bool) -> None:
     GameUpdateSignal.get_instance().game_loaded.connect(on_game_load)
 
     # Start window
-    window = QLiberationWindow(game, dev)
+    window = QLiberationWindow(game, ui_flags)
     window.showMaximized()
     splash.finish(window)
     qt_execution_code = app.exec_()
@@ -186,6 +180,19 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--dev", action="store_true", help="Enable development mode.")
+
+    speed_controls_group = parser.add_argument_group()
+    speed_controls_group.add_argument(
+        "--show-sim-speed-controls",
+        action="store_true",
+        help="Shows the sim speed controls in the top panel.",
+    )
+    speed_controls_group.add_argument(
+        "--no-show-sim-speed-controls",
+        dest="show_sim_speed_controls",
+        action="store_false",
+        help="Hides the sim speed controls in the top panel (default).",
+    )
 
     parser.add_argument("--new-map", help="Deprecated. Does nothing.")
     parser.add_argument("--old-map", help="Deprecated. Does nothing.")
@@ -231,6 +238,10 @@ def parse_args() -> argparse.Namespace:
 
     new_game.add_argument("--cheats", action="store_true", help="Enable cheats.")
 
+    new_game.add_argument(
+        "--advanced-iads", action="store_true", help="Enable advanced IADS."
+    )
+
     lint_weapons = subparsers.add_parser("lint-weapons")
     lint_weapons.add_argument("aircraft", help="Name of the aircraft variant to lint.")
 
@@ -247,6 +258,7 @@ def create_game(
     cheats: bool,
     start_date: datetime,
     restrict_weapons_by_date: bool,
+    advanced_iads: bool,
 ) -> Game:
     first_start = liberation_install.init()
     if first_start:
@@ -264,7 +276,7 @@ def create_game(
     # way.
     inject_custom_payloads(Path(persistency.base_path()))
     campaign = Campaign.from_file(campaign_path)
-    theater = campaign.load_theater()
+    theater = campaign.load_theater(advanced_iads)
     generator = GameGenerator(
         FACTIONS[blue],
         FACTIONS[red],
@@ -281,6 +293,7 @@ def create_game(
         ),
         GeneratorSettings(
             start_date=start_date,
+            start_time=campaign.recommended_start_time,
             player_budget=DEFAULT_BUDGET,
             enemy_budget=DEFAULT_BUDGET,
             inverted=inverted,
@@ -358,13 +371,14 @@ def main():
                 args.cheats,
                 args.date,
                 args.restrict_weapons_by_date,
+                args.advanced_iads,
             )
     if args.subcommand == "lint-weapons":
         lint_weapon_data_for_aircraft(AircraftType.named(args.aircraft))
         return
 
     with Server().run_in_thread():
-        run_ui(game, args.dev)
+        run_ui(game, UiFlags(args.dev, args.show_sim_speed_controls))
 
 
 if __name__ == "__main__":

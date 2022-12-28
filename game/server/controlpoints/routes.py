@@ -3,13 +3,12 @@ from uuid import UUID
 from dcs import Point
 from dcs.mapping import LatLng
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from starlette.responses import Response
 
 from game import Game
 from .models import ControlPointJs
-from .. import EventStream
 from ..dependencies import GameContext
 from ..leaflet import LeafletPoint
-from ...sim import GameUpdateEvents
 
 router: APIRouter = APIRouter(prefix="/control-points")
 
@@ -61,6 +60,7 @@ def destination_in_range(
     "/{cp_id}/destination",
     operation_id="set_control_point_destination",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 def set_destination(
     cp_id: UUID,
@@ -90,13 +90,17 @@ def set_destination(
             f"{cp.max_move_distance.nautical_miles}nm.",
         )
     cp.target_position = point
-    EventStream.put_nowait(GameUpdateEvents().update_control_point(cp))
+    from .. import EventStream
+
+    with EventStream.event_context() as events:
+        events.update_control_point(cp)
 
 
 @router.put(
     "/{cp_id}/cancel-travel",
     operation_id="clear_control_point_destination",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 def cancel_travel(cp_id: UUID, game: Game = Depends(GameContext.require)) -> None:
     cp = game.theater.find_control_point_by_id(cp_id)
@@ -113,4 +117,7 @@ def cancel_travel(cp_id: UUID, game: Game = Depends(GameContext.require)) -> Non
         )
 
     cp.target_position = None
-    EventStream.put_nowait(GameUpdateEvents().update_control_point(cp))
+    from .. import EventStream
+
+    with EventStream.event_context() as events:
+        events.update_control_point(cp)

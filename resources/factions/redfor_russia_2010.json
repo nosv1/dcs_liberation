@@ -11,6 +11,7 @@
     "J-11A Flanker-L",
     "JF-17 Thunder",
     "Ka-50 Hokum",
+    "Ka-50 Hokum (Blackshark 3)",
     "L-39ZA Albatros",
     "Mi-24V Hind-E",
     "Mi-24P Hind-F",
@@ -69,6 +70,7 @@
   "missiles": [],
   "preset_groups": [
     "SA-2/S-75",
+    "SA-2/S-75 V-759/5V23",
     "SA-6",
     "SA-11",
     "HQ-7",

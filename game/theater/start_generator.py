@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 from typing import List
 
 import dcs.statics
@@ -17,7 +17,6 @@ from game.theater.theatergroundobject import (
     BuildingGroundObject,
     IadsBuildingGroundObject,
 )
-from .theatergroup import SceneryUnit, TheaterGroup, IadsGroundGroup, IadsRole
 from game.utils import Heading, escape_string_for_lua
 from game.version import VERSION
 from . import (
@@ -27,10 +26,7 @@ from . import (
     Fob,
     OffMapSpawn,
 )
-from ..campaignloader.campaignairwingconfig import CampaignAirWingConfig
-from ..data.building_data import IADS_BUILDINGS
-from ..data.groups import GroupTask
-from ..armedforces.forcegroup import ForceGroup
+from .theatergroup import IadsGroundGroup, IadsRole, SceneryUnit, TheaterGroup
 from ..armedforces.armedforces import ArmedForces
 from ..armedforces.forcegroup import ForceGroup
 from ..campaignloader.campaignairwingconfig import CampaignAirWingConfig
@@ -42,6 +38,7 @@ from ..settings import Settings
 @dataclass(frozen=True)
 class GeneratorSettings:
     start_date: datetime
+    start_time: time | None
     player_budget: int
     enemy_budget: int
     inverted: bool
@@ -63,6 +60,7 @@ class ModSettings:
     su57_felon: bool = False
     frenchpack: bool = False
     high_digit_sams: bool = False
+    ov10a_bronco: bool = False
 
 
 class GameGenerator:
@@ -96,6 +94,7 @@ class GameGenerator:
                 theater=self.theater,
                 air_wing_config=self.air_wing_config,
                 start_date=self.generator_settings.start_date,
+                start_time=self.generator_settings.start_time,
                 settings=self.settings,
                 player_budget=self.generator_settings.player_budget,
                 enemy_budget=self.generator_settings.enemy_budget,
@@ -382,13 +381,13 @@ class AirbaseGroundObjectGenerator(ControlPointGroundObjectGenerator):
         g = tgo_type(
             namegen.random_objective_name(),
             scenery.category,
-            PresetLocation(scenery.zone_def.name, scenery.position),
+            PresetLocation(scenery.name, scenery.centroid),
             self.control_point,
         )
         ground_group = TheaterGroup(
             self.game.next_group_id(),
-            scenery.zone_def.name,
-            PointWithHeading.from_point(scenery.position, Heading.from_degrees(0)),
+            scenery.name,
+            PointWithHeading.from_point(scenery.centroid, Heading.from_degrees(0)),
             [],
             g,
         )
@@ -398,7 +397,7 @@ class AirbaseGroundObjectGenerator(ControlPointGroundObjectGenerator):
 
         g.groups.append(ground_group)
         # Each nested trigger zone is a target/building/unit for an objective.
-        for zone in scenery.zones:
+        for zone in scenery.target_zones:
             zone.name = escape_string_for_lua(zone.name)
             scenery_unit = SceneryUnit(
                 zone.id,

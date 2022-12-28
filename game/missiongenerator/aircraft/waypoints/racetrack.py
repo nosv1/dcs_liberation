@@ -12,6 +12,7 @@ from dcs.task import (
 
 from game.ato import FlightType
 from game.ato.flightplans.patrolling import PatrollingFlightPlan
+from ._helper import create_stop_orbit_trigger
 from .pydcswaypointbuilder import PydcsWaypointBuilder
 
 
@@ -57,14 +58,18 @@ class RaceTrackBuilder(PydcsWaypointBuilder):
         racetrack = ControlledTask(orbit)
         self.set_waypoint_tot(waypoint, flight_plan.patrol_start_time)
         loiter_duration = flight_plan.patrol_end_time - self.elapsed_mission_time
-        racetrack.stop_after_time(int(loiter_duration.total_seconds()))
+        elapsed = int(loiter_duration.total_seconds())
+        racetrack.stop_after_time(elapsed)
+        # What follows is some code to cope with the broken 'stop after time' condition
+        create_stop_orbit_trigger(racetrack, self.package, self.mission, elapsed)
+        # end of hotfix
         waypoint.add_task(racetrack)
 
     def configure_refueling_actions(self, waypoint: MovingPoint) -> None:
         waypoint.add_task(Tanker())
 
         if self.flight.unit_type.dcs_unit_type.tacan:
-            tanker_info = self.air_support.tankers[-1]
+            tanker_info = self.mission_data.tankers[-1]
             tacan = tanker_info.tacan
             tacan_callsign = {
                 "Texaco": "TEX",

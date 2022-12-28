@@ -112,7 +112,7 @@ local function discoverDebriefingFilePath()
 
     -- nothing worked, let's try the last resort folder : current directory.
     if lfs then
-        return testDebriefingFilePath(lfs.writedir(), "the working directory", useCurrentStamping)
+        return testDebriefingFilePath(lfs.writedir().."Missions\\", "the working directory", useCurrentStamping)
     end
     
     return nil
@@ -157,11 +157,6 @@ local function onEvent(event)
         destruction.type = event.initiator:getTypeName()
         destruction.orientation = mist.getHeading(event.initiator) * 57.3
         destroyed_objects_positions[#destroyed_objects_positions + 1] = destruction
-        write_state()
-    end
-
-    if event.id == world.event.S_EVENT_BASE_CAPTURED and event.place then
-        base_capture_events[#base_capture_events + 1] = event.place.getID(event.place) .. "||" .. event.place.getCoalition(event.place) .. "||" .. event.place.getName(event.place)
         write_state()
     end
 

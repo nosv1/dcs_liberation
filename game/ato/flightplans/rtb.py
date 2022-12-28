@@ -15,8 +15,47 @@ if TYPE_CHECKING:
     from ..flightwaypoint import FlightWaypoint
 
 
-class Builder(IBuilder):
-    def build(self) -> RtbLayout:
+@dataclass(frozen=True)
+class RtbLayout(StandardLayout):
+    abort_location: FlightWaypoint
+    nav_to_destination: list[FlightWaypoint]
+
+    def iter_waypoints(self) -> Iterator[FlightWaypoint]:
+        yield self.departure
+        yield self.abort_location
+        yield from self.nav_to_destination
+        yield self.arrival
+        if self.divert is not None:
+            yield self.divert
+        yield self.bullseye
+
+
+class RtbFlightPlan(StandardFlightPlan[RtbLayout]):
+    @staticmethod
+    def builder_type() -> Type[Builder]:
+        return Builder
+
+    @property
+    def abort_index(self) -> int:
+        return 1
+
+    @property
+    def tot_waypoint(self) -> FlightWaypoint:
+        return self.layout.abort_location
+
+    def tot_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
+        return None
+
+    def depart_time_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
+        return None
+
+    @property
+    def mission_departure_time(self) -> timedelta:
+        return timedelta()
+
+
+class Builder(IBuilder[RtbFlightPlan, RtbLayout]):
+    def layout(self) -> RtbLayout:
         if not isinstance(self.flight.state, InFlight):
             raise RuntimeError(f"Cannot abort {self} because it is not in flight")
 
@@ -50,41 +89,5 @@ class Builder(IBuilder):
             bullseye=builder.bullseye(),
         )
 
-
-@dataclass(frozen=True)
-class RtbLayout(StandardLayout):
-    abort_location: FlightWaypoint
-    nav_to_destination: list[FlightWaypoint]
-
-    def iter_waypoints(self) -> Iterator[FlightWaypoint]:
-        yield self.departure
-        yield self.abort_location
-        yield from self.nav_to_destination
-        yield self.arrival
-        if self.divert is not None:
-            yield self.divert
-        yield self.bullseye
-
-
-class RtbFlightPlan(StandardFlightPlan[RtbLayout]):
-    @staticmethod
-    def builder_type() -> Type[Builder]:
-        return Builder
-
-    @property
-    def abort_index(self) -> int:
-        return 1
-
-    @property
-    def tot_waypoint(self) -> FlightWaypoint | None:
-        return None
-
-    def tot_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
-        return None
-
-    def depart_time_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
-        return None
-
-    @property
-    def mission_departure_time(self) -> timedelta:
-        return timedelta()
+    def build(self) -> RtbFlightPlan:
+        return RtbFlightPlan(self.flight, self.layout())

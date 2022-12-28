@@ -3,15 +3,7 @@ from typing import Dict
 
 from PySide2.QtGui import QPixmap
 
-from game.theater.theatergroundobject import NAME_BY_CATEGORY
 from .liberation_theme import get_theme_icons
-
-URLS: Dict[str, str] = {
-    "Manual": "https://github.com/dcs-liberation/dcs_liberation/wiki",
-    "Repository": "https://github.com/dcs-liberation/dcs_liberation",
-    "ForumThread": "https://forums.eagle.ru/showthread.php?t=214834",
-    "Issues": "https://github.com/dcs-liberation/dcs_liberation/issues",
-}
 
 LABELS_OPTIONS = ["Full", "Abbreviated", "Dot Only", "Neutral Dot", "Off"]
 SKILL_OPTIONS = ["Average", "Good", "High", "Excellent"]
@@ -34,6 +26,7 @@ def load_icons():
     ICONS["Github"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/github.png"
     )
+    ICONS["Bug"] = QPixmap("./resources/ui/misc/" + get_theme_icons() + "/bug.png")
     ICONS["Ukraine"] = QPixmap("./resources/ui/misc/ukraine.png")
 
     ICONS["Control Points"] = QPixmap(
@@ -63,18 +56,18 @@ def load_icons():
 
     ICONS["Hangar"] = QPixmap("./resources/ui/misc/hangar.png")
 
-    ICONS["Terrain_Caucasus"] = QPixmap("./resources/ui/terrain_caucasus.gif")
-    ICONS["Terrain_PersianGulf"] = QPixmap("./resources/ui/terrain_pg.gif")
-    ICONS["Terrain_Nevada"] = QPixmap("./resources/ui/terrain_nevada.gif")
-    ICONS["Terrain_Normandy"] = QPixmap("./resources/ui/terrain_normandy.gif")
-    ICONS["Terrain_TheChannel"] = QPixmap("./resources/ui/terrain_channel.gif")
-    ICONS["Terrain_Syria"] = QPixmap("./resources/ui/terrain_syria.gif")
-    ICONS["Terrain_MarianaIslands"] = QPixmap("./resources/ui/terrain_marianas.gif")
-
-    ICONS["Dawn"] = QPixmap("./resources/ui/conditions/timeofday/dawn.png")
-    ICONS["Day"] = QPixmap("./resources/ui/conditions/timeofday/day.png")
-    ICONS["Dusk"] = QPixmap("./resources/ui/conditions/timeofday/dusk.png")
-    ICONS["Night"] = QPixmap("./resources/ui/conditions/timeofday/night.png")
+    ICONS["Dawn"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/timeofday/dawn.png"
+    )
+    ICONS["Day"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/timeofday/day.png"
+    )
+    ICONS["Dusk"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/timeofday/dusk.png"
+    )
+    ICONS["Night"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/timeofday/night.png"
+    )
 
     ICONS["Money"] = QPixmap(
         "./resources/ui/misc/" + get_theme_icons() + "/money_icon.png"
@@ -124,46 +117,64 @@ def load_icons():
     """
     Weather Icons
     """
-    ICONS["Weather_winds"] = QPixmap("./resources/ui/conditions/weather/winds.png")
+    ICONS["Weather_winds"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/winds.png"
+    )
     ICONS["Weather_day-clear"] = QPixmap(
-        "./resources/ui/conditions/weather/day-clear.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/day-clear.png"
     )
     ICONS["Weather_day-cloudy-fog"] = QPixmap(
-        "./resources/ui/conditions/weather/day-cloudy-fog.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/day-cloudy-fog.png"
     )
-    ICONS["Weather_day-fog"] = QPixmap("./resources/ui/conditions/weather/day-fog.png")
+    ICONS["Weather_day-fog"] = QPixmap(
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/day-fog.png"
+    )
     ICONS["Weather_day-partly-cloudy"] = QPixmap(
-        "./resources/ui/conditions/weather/day-partly-cloudy.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/day-partly-cloudy.png"
     )
     ICONS["Weather_day-rain"] = QPixmap(
-        "./resources/ui/conditions/weather/day-rain.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/day-rain.png"
     )
     ICONS["Weather_day-thunderstorm"] = QPixmap(
-        "./resources/ui/conditions/weather/day-thunderstorm.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/day-thunderstorm.png"
     )
     ICONS["Weather_day-totally-cloud"] = QPixmap(
-        "./resources/ui/conditions/weather/day-totally-cloud.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/day-totally-cloud.png"
     )
     ICONS["Weather_night-clear"] = QPixmap(
-        "./resources/ui/conditions/weather/night-clear.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/night-clear.png"
     )
     ICONS["Weather_night-cloudy-fog"] = QPixmap(
-        "./resources/ui/conditions/weather/night-cloudy-fog.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/night-cloudy-fog.png"
     )
     ICONS["Weather_night-fog"] = QPixmap(
-        "./resources/ui/conditions/weather/night-fog.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/night-fog.png"
     )
     ICONS["Weather_night-partly-cloudy"] = QPixmap(
-        "./resources/ui/conditions/weather/night-partly-cloudy.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/night-partly-cloudy.png"
     )
     ICONS["Weather_night-rain"] = QPixmap(
-        "./resources/ui/conditions/weather/night-rain.png"
+        "./resources/ui/conditions/" + get_theme_icons() + "/weather/night-rain.png"
     )
     ICONS["Weather_night-thunderstorm"] = QPixmap(
-        "./resources/ui/conditions/weather/night-thunderstorm.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/night-thunderstorm.png"
     )
     ICONS["Weather_night-totally-cloud"] = QPixmap(
-        "./resources/ui/conditions/weather/night-totally-cloud.png"
+        "./resources/ui/conditions/"
+        + get_theme_icons()
+        + "/weather/night-totally-cloud.png"
     )
 
     ICONS["heading"] = QPixmap("./resources/ui/misc/heading.png")
@@ -189,6 +200,11 @@ def load_aircraft_icons():
     AIRCRAFT_ICONS["F-16C_50"] = AIRCRAFT_ICONS["F-16C"]
     AIRCRAFT_ICONS["FA-18C_hornet"] = AIRCRAFT_ICONS["FA-18C"]
     AIRCRAFT_ICONS["A-10C_2"] = AIRCRAFT_ICONS["A-10C"]
+    f1_refuel = ["Mirage-F1CT", "Mirage-F1EE", "Mirage-F1M-EE", "Mirage-F1EQ"]
+    for f1 in f1_refuel:
+        AIRCRAFT_ICONS[f1] = AIRCRAFT_ICONS["Mirage-F1C-200"]
+    AIRCRAFT_ICONS["Mirage-F1M-CE"] = AIRCRAFT_ICONS["Mirage-F1CE"]
+    AIRCRAFT_ICONS["MB-339A"] = AIRCRAFT_ICONS["MB-339A PAN"]
 
 
 def load_vehicle_icons():
@@ -205,6 +221,12 @@ def load_aircraft_banners():
             AIRCRAFT_BANNERS[aircraft[:-7]] = QPixmap(
                 os.path.join("./resources/ui/units/aircrafts/banners/", aircraft)
             )
+    variants = ["Mirage-F1CT", "Mirage-F1EE", "Mirage-F1M-EE", "Mirage-F1EQ"]
+    for f1 in variants:
+        AIRCRAFT_BANNERS[f1] = AIRCRAFT_BANNERS["Mirage-F1C-200"]
+    variants = ["Mirage-F1CE", "Mirage-F1M-CE"]
+    for f1 in variants:
+        AIRCRAFT_BANNERS[f1] = AIRCRAFT_BANNERS["Mirage-F1C"]
 
 
 def load_vehicle_banners():

@@ -26,21 +26,22 @@ from typing import (
 from uuid import UUID
 
 from dcs.mapping import Point
-from dcs.terrain.terrain import Airport, ParkingSlot
-from dcs.unitgroup import ShipGroup, StaticGroup
-from dcs.unittype import ShipType
 from dcs.ships import (
     CVN_71,
     CVN_72,
     CVN_73,
     CVN_75,
     CV_1143_5,
-    KUZNECOW,
-    Stennis,
     Forrestal,
+    Hms_invincible,
+    KUZNECOW,
     LHA_Tarawa,
+    Stennis,
     Type_071,
 )
+from dcs.terrain.terrain import Airport, ParkingSlot
+from dcs.unitgroup import ShipGroup, StaticGroup
+from dcs.unittype import ShipType
 
 from game.ato.closestairfields import ObjectiveDistanceCache
 from game.ground_forces.combat_stance import CombatStance
@@ -56,8 +57,8 @@ from game.sidc import (
     Status,
     SymbolSet,
 )
-from game.utils import Distance, Heading, meters
 from game.theater.presetlocation import PresetLocation
+from game.utils import Distance, Heading, meters
 from .base import Base
 from .frontline import FrontLine
 from .missiontarget import MissionTarget
@@ -320,6 +321,7 @@ class ControlPoint(MissionTarget, SidcDescribable, ABC):
         name: str,
         position: Point,
         at: StartingPosition,
+        theater: ConflictTheater,
         starts_blue: bool,
         cptype: ControlPointType = ControlPointType.AIRBASE,
     ) -> None:
@@ -327,6 +329,7 @@ class ControlPoint(MissionTarget, SidcDescribable, ABC):
         self.id = uuid.uuid4()
         self.full_name = name
         self.at = at
+        self.theater = theater
         self.starts_blue = starts_blue
         self.connected_objectives: List[TheaterGroundObject] = []
         self.preset_locations = PresetLocations()
@@ -398,7 +401,7 @@ class ControlPoint(MissionTarget, SidcDescribable, ABC):
         self.front_lines[connection] = front
         connection.front_lines[self] = front
         self.front_line_db.add(front.id, front)
-        events.new_front_line(front)
+        events.update_front_line(front)
 
     def _remove_front_line_with(
         self, connection: ControlPoint, events: GameUpdateEvents
@@ -837,16 +840,23 @@ class ControlPoint(MissionTarget, SidcDescribable, ABC):
         events.update_control_point(self)
 
         # All the attached TGOs have either been depopulated or captured. Tell the UI to
-        # update their state. Also update orientation and IADS state for specific tgos
+        # update their state. Also update the orientation of all TGOs
+        iads_update_required = False
+        iads_network = game.theater.iads_network
         for tgo in self.connected_objectives:
             if isinstance(tgo, IadsGroundObject) or isinstance(
                 tgo, VehicleGroupGroundObject
             ):
-                if isinstance(tgo, IadsGroundObject):
-                    game.theater.iads_network.update_tgo(tgo)
+                if not iads_update_required and tgo in iads_network.participating:
+                    iads_update_required = True
                 conflict_heading = game.theater.heading_to_conflict_from(tgo.position)
                 tgo.rotate(conflict_heading or tgo.heading)
-            events.update_tgo(tgo)
+            if not tgo.is_control_point:
+                events.update_tgo(tgo)
+
+        # Update the IADS Network
+        if iads_update_required:
+            iads_network.update_network(events)
 
     @property
     def required_aircraft_start_type(self) -> Optional[StartType]:
@@ -1039,11 +1049,14 @@ class ControlPoint(MissionTarget, SidcDescribable, ABC):
 
 
 class Airfield(ControlPoint):
-    def __init__(self, airport: Airport, starts_blue: bool) -> None:
+    def __init__(
+        self, airport: Airport, theater: ConflictTheater, starts_blue: bool
+    ) -> None:
         super().__init__(
             airport.name,
             airport.position,
             airport,
+            theater,
             starts_blue,
             cptype=ControlPointType.AIRBASE,
         )
@@ -1078,6 +1091,7 @@ class Airfield(ControlPoint):
             yield from [
                 FlightType.OCA_AIRCRAFT,
                 FlightType.OCA_RUNWAY,
+                FlightType.AIR_ASSAULT,
             ]
 
         yield from super().mission_types(for_player)
@@ -1163,6 +1177,8 @@ class NavalControlPoint(ControlPoint, ABC):
 
         if self.is_friendly(for_player):
             yield from [
+                FlightType.AEWC,
+                FlightType.REFUELING,
                 # TODO: FlightType.INTERCEPTION
                 # TODO: Buddy tanking for the A-4?
                 # TODO: Rescue chopper?
@@ -1187,11 +1203,12 @@ class NavalControlPoint(ControlPoint, ABC):
         # while its escorts are still alive.
         for group in self.find_main_tgo().groups:
             for u in group.units:
-                if u.type in [
+                if u.alive and u.type in [
                     Forrestal,
-                    Stennis,
-                    LHA_Tarawa,
+                    Hms_invincible,
                     KUZNECOW,
+                    LHA_Tarawa,
+                    Stennis,
                     Type_071,
                 ]:
                     return True
@@ -1235,9 +1252,16 @@ class NavalControlPoint(ControlPoint, ABC):
 
 
 class Carrier(NavalControlPoint):
-    def __init__(self, name: str, at: Point, starts_blue: bool):
+    def __init__(
+        self, name: str, at: Point, theater: ConflictTheater, starts_blue: bool
+    ):
         super().__init__(
-            name, at, at, starts_blue, cptype=ControlPointType.AIRCRAFT_CARRIER_GROUP
+            name,
+            at,
+            at,
+            theater,
+            starts_blue,
+            cptype=ControlPointType.AIRCRAFT_CARRIER_GROUP,
         )
 
     @property
@@ -1250,8 +1274,7 @@ class Carrier(NavalControlPoint):
         yield from super().mission_types(for_player)
         if self.is_friendly(for_player):
             yield from [
-                FlightType.AEWC,
-                FlightType.REFUELING,
+                # Nothing yet.
             ]
 
     def capture(self, game: Game, events: GameUpdateEvents, for_player: bool) -> None:
@@ -1274,8 +1297,12 @@ class Carrier(NavalControlPoint):
 
 
 class Lha(NavalControlPoint):
-    def __init__(self, name: str, at: Point, starts_blue: bool):
-        super().__init__(name, at, at, starts_blue, cptype=ControlPointType.LHA_GROUP)
+    def __init__(
+        self, name: str, at: Point, theater: ConflictTheater, starts_blue: bool
+    ):
+        super().__init__(
+            name, at, at, theater, starts_blue, cptype=ControlPointType.LHA_GROUP
+        )
 
     @property
     def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
@@ -1304,9 +1331,16 @@ class OffMapSpawn(ControlPoint):
     def runway_is_operational(self) -> bool:
         return True
 
-    def __init__(self, name: str, position: Point, starts_blue: bool):
+    def __init__(
+        self, name: str, position: Point, theater: ConflictTheater, starts_blue: bool
+    ):
         super().__init__(
-            name, position, position, starts_blue, cptype=ControlPointType.OFF_MAP
+            name,
+            position,
+            position,
+            theater,
+            starts_blue,
+            cptype=ControlPointType.OFF_MAP,
         )
 
     @property
@@ -1363,8 +1397,12 @@ class OffMapSpawn(ControlPoint):
 
 
 class Fob(ControlPoint):
-    def __init__(self, name: str, at: Point, starts_blue: bool):
-        super().__init__(name, at, at, starts_blue, cptype=ControlPointType.FOB)
+    def __init__(
+        self, name: str, at: Point, theater: ConflictTheater, starts_blue: bool
+    ):
+        super().__init__(
+            name, at, at, theater, starts_blue, cptype=ControlPointType.FOB
+        )
         self.name = name
 
     @property
@@ -1394,6 +1432,7 @@ class Fob(ControlPoint):
 
         if not self.is_friendly(for_player):
             yield FlightType.STRIKE
+            yield FlightType.AIR_ASSAULT
 
         yield from super().mission_types(for_player)
 
@@ -1402,7 +1441,10 @@ class Fob(ControlPoint):
         return len(self.helipads)
 
     def can_operate(self, aircraft: AircraftType) -> bool:
-        return aircraft.helicopter
+        # FOBs and FARPs are the same class, distinguished only by non-FARP FOBs having
+        # zero parking.
+        # https://github.com/dcs-liberation/dcs_liberation/issues/2378
+        return aircraft.helicopter and self.total_aircraft_parking > 0
 
     @property
     def heading(self) -> Heading:

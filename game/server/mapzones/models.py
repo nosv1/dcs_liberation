@@ -20,6 +20,10 @@ class MapZonesJs(BaseModel):
     class Config:
         title = "MapZones"
 
+    @classmethod
+    def empty(cls) -> MapZonesJs:
+        return MapZonesJs(inclusion=[], exclusion=[], sea=[])
+
 
 class UnculledZoneJs(BaseModel):
     position: LeafletPoint
@@ -27,6 +31,16 @@ class UnculledZoneJs(BaseModel):
 
     class Config:
         title = "UnculledZone"
+
+    @staticmethod
+    def from_game(game: Game) -> list[UnculledZoneJs]:
+        return [
+            UnculledZoneJs(
+                position=zone.latlng(),
+                radius=game.settings.perf_culling_distance * 1000,
+            )
+            for zone in game.get_culling_zones()
+        ]
 
 
 class ThreatZonesJs(BaseModel):

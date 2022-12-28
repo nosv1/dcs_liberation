@@ -1,32 +1,25 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import yaml
 from packaging.version import Version
 
+from game import persistency
 from game.profiling import logged_duration
 from game.theater import (
-    CaucasusTheater,
     ConflictTheater,
-    MarianaIslandsTheater,
-    NevadaTheater,
-    NormandyTheater,
-    PersianGulfTheater,
-    SyriaTheater,
-    TheChannelTheater,
 )
 from game.theater.iadsnetwork.iadsnetwork import IadsNetwork
+from game.theater.theaterloader import TheaterLoader
 from game.version import CAMPAIGN_FORMAT_VERSION
 from .campaignairwingconfig import CampaignAirWingConfig
 from .mizcampaignloader import MizCampaignLoader
-from .. import persistency
 
 PERF_FRIENDLY = 0
 PERF_MEDIUM = 1
@@ -38,7 +31,7 @@ DEFAULT_BUDGET = 2000
 @dataclass(frozen=True)
 class Campaign:
     name: str
-    icon_name: str
+    menu_thumbnail_dcs_relative_path: Path
     authors: str
     description: str
 
@@ -49,7 +42,8 @@ class Campaign:
 
     recommended_player_faction: str
     recommended_enemy_faction: str
-    recommended_start_date: Optional[datetime.date]
+    recommended_start_date: datetime.date | None
+    recommended_start_time: datetime.time | None
 
     recommended_player_money: int
     recommended_enemy_money: int
@@ -64,10 +58,7 @@ class Campaign:
     @classmethod
     def from_file(cls, path: Path) -> Campaign:
         with path.open() as campaign_file:
-            if path.suffix == ".yaml":
-                data = yaml.safe_load(campaign_file)
-            else:
-                data = json.load(campaign_file)
+            data = yaml.safe_load(campaign_file)
 
         sanitized_theater = data["theater"].replace(" ", "")
         version_field = data.get("version", "0")
@@ -80,14 +71,15 @@ class Campaign:
             version = Version(str(version_field))
 
         start_date_raw = data.get("recommended_start_date")
-
-        # YAML automatically parses dates, but while we still support JSON campaigns we
-        # need to be able to handle parsing dates from strings ourselves as well.
-        start_date: Optional[datetime.date]
-        if isinstance(start_date_raw, str):
-            start_date = datetime.date.fromisoformat(start_date_raw)
+        # YAML automatically parses dates.
+        start_date: datetime.date | None
+        start_time: datetime.time | None = None
+        if isinstance(start_date_raw, datetime.datetime):
+            start_date = start_date_raw.date()
+            start_time = start_date_raw.time()
         elif isinstance(start_date_raw, datetime.date):
             start_date = start_date_raw
+            start_time = None
         elif start_date_raw is None:
             start_date = None
         else:
@@ -97,13 +89,14 @@ class Campaign:
 
         return cls(
             data["name"],
-            f"Terrain_{sanitized_theater}",
+            TheaterLoader(data["theater"].lower()).menu_thumbnail_dcs_relative_path,
             data.get("authors", "???"),
             data.get("description", ""),
             (version.major, version.minor),
             data.get("recommended_player_faction", "USA 2005"),
             data.get("recommended_enemy_faction", "Russia 1990"),
             start_date,
+            start_time,
             data.get("recommended_player_money", DEFAULT_BUDGET),
             data.get("recommended_enemy_money", DEFAULT_BUDGET),
             data.get("recommended_player_income_multiplier", 1.0),
@@ -115,17 +108,7 @@ class Campaign:
         )
 
     def load_theater(self, advanced_iads: bool) -> ConflictTheater:
-        theaters = {
-            "Caucasus": CaucasusTheater,
-            "Nevada": NevadaTheater,
-            "Persian Gulf": PersianGulfTheater,
-            "Normandy": NormandyTheater,
-            "The Channel": TheChannelTheater,
-            "Syria": SyriaTheater,
-            "MarianaIslands": MarianaIslandsTheater,
-        }
-        theater = theaters[self.data["theater"]]
-        t = theater()
+        t = TheaterLoader(self.data["theater"].lower()).load()
 
         try:
             miz = self.data["miz"]
@@ -137,6 +120,8 @@ class Campaign:
         with logged_duration("Importing miz data"):
             MizCampaignLoader(self.path.parent / miz, t).populate_theater()
 
+        # TODO: Move into MizCampaignLoader so this doesn't have unknown initialization
+        # in ConflictTheater.
         # Load IADS Config from campaign yaml
         iads_data = self.data.get("iads_config", [])
         t.iads_network = IadsNetwork(advanced_iads, iads_data)

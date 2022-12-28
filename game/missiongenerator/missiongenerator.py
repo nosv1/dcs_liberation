@@ -10,7 +10,8 @@ from dcs import Mission, Point
 from dcs.coalition import Coalition
 from dcs.countries import country_dict
 
-from game.airfields import AirfieldData
+from game.atcdata import AtcData
+from game.dcs.beacons import Beacons
 from game.dcs.helpers import unit_type_from_name
 from game.missiongenerator.aircraft.aircraftgenerator import (
     AircraftGenerator,
@@ -18,13 +19,11 @@ from game.missiongenerator.aircraft.aircraftgenerator import (
 from game.naming import namegen
 from game.radio.radios import RadioFrequency, RadioRegistry
 from game.radio.tacan import TacanRegistry
-from game.theater import Airfield, FrontLine
+from game.theater import Airfield
 from game.theater.bullseye import Bullseye
 from game.unitmap import UnitMap
-from .aircraft.flightdata import FlightData
-from .airsupport import AirSupport
+from .airconflictdescription import AirConflictDescription
 from .airsupportgenerator import AirSupportGenerator
-from .beacons import load_beacons_for_terrain
 from .briefinggenerator import BriefingGenerator, MissionInfoGenerator
 from .cargoshipgenerator import CargoShipGenerator
 from .convoygenerator import ConvoyGenerator
@@ -36,6 +35,7 @@ from .frontlineconflictdescription import FrontLineConflictDescription
 from .kneeboard import KneeboardGenerator
 from .lasercoderegistry import LaserCodeRegistry
 from .luagenerator import LuaGenerator
+from .missiondata import MissionData
 from .tgogenerator import TgoGenerator
 from .triggergenerator import TriggerGenerator
 from .visualsgenerator import VisualsGenerator
@@ -61,7 +61,7 @@ class MissionGenerator:
         self.mission = Mission(game.theater.terrain)
         self.unit_map = UnitMap()
 
-        self.air_support = AirSupport()
+        self.mission_data = MissionData()
 
         self.laser_code_registry = LaserCodeRegistry()
         self.radio_registry = RadioRegistry()
@@ -92,6 +92,7 @@ class MissionGenerator:
             self.radio_registry,
             self.tacan_registry,
             self.unit_map,
+            self.mission_data,
         )
         tgo_generator.generate()
 
@@ -103,17 +104,17 @@ class MissionGenerator:
         # Generate ground conflicts first so the JTACs get the first laser code (1688)
         # rather than the first player flight with a TGP.
         self.generate_ground_conflicts()
-        air_support, flights = self.generate_air_units(tgo_generator)
+        self.generate_air_units(tgo_generator)
 
         TriggerGenerator(self.mission, self.game).generate()
         ForcedOptionsGenerator(self.mission, self.game).generate()
         VisualsGenerator(self.mission, self.game).generate()
-        LuaGenerator(self.game, self.mission, air_support, flights).generate()
+        LuaGenerator(self.game, self.mission, self.mission_data).generate()
         DrawingsGenerator(self.mission, self.game).generate()
 
         self.setup_combined_arms()
 
-        self.notify_info_generators(tgo_generator, air_support, flights)
+        self.notify_info_generators()
 
         # TODO: Shouldn't this be first?
         namegen.reset_numbers()
@@ -168,8 +169,7 @@ class MissionGenerator:
         Dedup beacon/radio frequencies, since some maps have some frequencies
         used multiple times.
         """
-        beacons = load_beacons_for_terrain(self.game.theater.terrain.name)
-        for beacon in beacons:
+        for beacon in Beacons.iter_theater(self.game.theater):
             unique_map_frequencies.add(beacon.frequency)
             if beacon.is_tacan:
                 if beacon.channel is None:
@@ -180,12 +180,12 @@ class MissionGenerator:
     def initialize_radio_registry(
         self, unique_map_frequencies: set[RadioFrequency]
     ) -> None:
-        for data in AirfieldData.for_theater(self.game.theater):
-            if data.atc is not None:
-                unique_map_frequencies.add(data.atc.hf)
-                unique_map_frequencies.add(data.atc.vhf_fm)
-                unique_map_frequencies.add(data.atc.vhf_am)
-                unique_map_frequencies.add(data.atc.uhf)
+        for airport in self.game.theater.terrain.airport_list():
+            if (atc := AtcData.from_pydcs(airport)) is not None:
+                unique_map_frequencies.add(atc.hf)
+                unique_map_frequencies.add(atc.vhf_fm)
+                unique_map_frequencies.add(atc.vhf_am)
+                unique_map_frequencies.add(atc.uhf)
                 # No need to reserve ILS or TACAN because those are in the
                 # beacon list.
 
@@ -195,12 +195,7 @@ class MissionGenerator:
             player_cp = front_line.blue_cp
             enemy_cp = front_line.red_cp
             conflict = FrontLineConflictDescription.frontline_cas_conflict(
-                self.game.blue.faction.name,
-                self.game.red.faction.name,
-                self.mission.country(self.game.blue.country_name),
-                self.mission.country(self.game.red.country_name),
-                front_line,
-                self.game.theater,
+                front_line, self.game.theater
             )
             # Generate frontline ops
             player_gp = self.game.ground_planners[player_cp.id].units_per_cp[
@@ -217,24 +212,22 @@ class MissionGenerator:
                 enemy_cp.stances[player_cp.id],
                 self.unit_map,
                 self.radio_registry,
-                self.air_support,
+                self.mission_data,
                 self.laser_code_registry,
             )
             ground_conflict_gen.generate()
 
-    def generate_air_units(
-        self, tgo_generator: TgoGenerator
-    ) -> tuple[AirSupport, list[FlightData]]:
+    def generate_air_units(self, tgo_generator: TgoGenerator) -> None:
         """Generate the air units for the Operation"""
 
         # Air Support (Tanker & Awacs)
         air_support_generator = AirSupportGenerator(
             self.mission,
-            self.describe_air_conflict(),
+            AirConflictDescription.for_theater(self.game.theater),
             self.game,
             self.radio_registry,
             self.tacan_registry,
-            self.air_support,
+            self.mission_data,
         )
         air_support_generator.generate()
 
@@ -248,7 +241,7 @@ class MissionGenerator:
             self.tacan_registry,
             self.laser_code_registry,
             self.unit_map,
-            air_support=air_support_generator.air_support,
+            mission_data=air_support_generator.mission_data,
             helipads=tgo_generator.helipads,
         )
 
@@ -273,10 +266,10 @@ class MissionGenerator:
             if not flight.client_units:
                 continue
             flight.aircraft_type.assign_channels_for_flight(
-                flight, air_support_generator.air_support
+                flight, air_support_generator.mission_data
             )
 
-        return air_support_generator.air_support, aircraft_generator.flights
+        self.mission_data.flights = aircraft_generator.flights
 
     def generate_destroyed_units(self) -> None:
         """Add destroyed units to the Mission"""
@@ -307,51 +300,32 @@ class MissionGenerator:
                     dead=True,
                 )
 
-    def describe_air_conflict(self) -> FrontLineConflictDescription:
-        player_cp, enemy_cp = self.game.theater.closest_opposing_control_points()
-        mid_point = player_cp.position.point_from_heading(
-            player_cp.position.heading_between_point(enemy_cp.position),
-            player_cp.position.distance_to_point(enemy_cp.position) / 2,
-        )
-        return FrontLineConflictDescription(
-            self.game.theater,
-            FrontLine(player_cp, enemy_cp),
-            self.game.blue.faction.name,
-            self.game.red.faction.name,
-            self.mission.country(self.game.blue.country_name),
-            self.mission.country(self.game.red.country_name),
-            mid_point,
-        )
-
     def notify_info_generators(
         self,
-        tgo_generator: TgoGenerator,
-        air_support: AirSupport,
-        flights: list[FlightData],
     ) -> None:
         """Generates subscribed MissionInfoGenerator objects."""
-
+        mission_data = self.mission_data
         gens: list[MissionInfoGenerator] = [
             KneeboardGenerator(self.mission, self.game),
             BriefingGenerator(self.mission, self.game),
         ]
         for gen in gens:
-            for dynamic_runway in tgo_generator.runways.values():
+            for dynamic_runway in mission_data.runways:
                 gen.add_dynamic_runway(dynamic_runway)
 
-            for tanker in air_support.tankers:
+            for tanker in mission_data.tankers:
                 if tanker.blue:
                     gen.add_tanker(tanker)
 
-            for aewc in air_support.awacs:
+            for aewc in mission_data.awacs:
                 if aewc.blue:
                     gen.add_awacs(aewc)
 
-            for jtac in air_support.jtacs:
+            for jtac in mission_data.jtacs:
                 if jtac.blue:
                     gen.add_jtac(jtac)
 
-            for flight in flights:
+            for flight in mission_data.flights:
                 gen.add_flight(flight)
             gen.generate()
 

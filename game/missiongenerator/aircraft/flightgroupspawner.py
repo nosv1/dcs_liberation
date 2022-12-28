@@ -6,7 +6,7 @@ from dcs import Mission
 from dcs.country import Country
 from dcs.mapping import Vector2
 from dcs.mission import StartType as DcsStartType
-from dcs.planes import F_14A, Su_33
+from dcs.planes import Su_33
 from dcs.ships import KUZNECOW
 from dcs.terrain import Airport, NoParkingSlotError
 from dcs.unitgroup import FlyingGroup, ShipGroup, StaticGroup
@@ -29,7 +29,8 @@ WARM_START_ALTITUDE = meters(3000)
 # PG at 5700ft. This could still be too low if there are tall obstacles near the
 # airfield, but the lowest we can push this the better to avoid spawning helicopters
 # well above the altitude for WP1.
-MINIMUM_MID_MISSION_SPAWN_ALTITUDE = feet(6000)
+MINIMUM_MID_MISSION_SPAWN_ALTITUDE_MSL = feet(6000)
+MINIMUM_MID_MISSION_SPAWN_ALTITUDE_AGL = feet(500)
 
 RTB_ALTITUDE = meters(800)
 RTB_DISTANCE = 5000
@@ -139,8 +140,13 @@ class FlightGroupSpawner:
         # We don't know where the ground is, so just make sure that any aircraft
         # spawning at an MSL altitude is spawned at some minimum altitude.
         # https://github.com/dcs-liberation/dcs_liberation/issues/1941
-        if alt_type == "BARO" and alt < MINIMUM_MID_MISSION_SPAWN_ALTITUDE:
-            alt = MINIMUM_MID_MISSION_SPAWN_ALTITUDE
+        if alt_type == "BARO" and alt < MINIMUM_MID_MISSION_SPAWN_ALTITUDE_MSL:
+            alt = MINIMUM_MID_MISSION_SPAWN_ALTITUDE_MSL
+
+        # Set a minimum AGL value for 'alt' if needed,
+        # otherwise planes might crash in trees and stuff.
+        if alt_type == "RADIO" and alt < MINIMUM_MID_MISSION_SPAWN_ALTITUDE_AGL:
+            alt = MINIMUM_MID_MISSION_SPAWN_ALTITUDE_AGL
 
         group = self.mission.flight_group(
             country=self.country,
@@ -253,9 +259,7 @@ class FlightGroupSpawner:
         # Setting Su-33s starting from the non-supercarrier Kuznetsov to take off from
         # runway to work around a DCS AI issue preventing Su-33s from taking off when
         # set to "Takeoff from ramp" (#1352)
-        # Also setting the F-14A AI variant to start from cats since they are reported
-        # to have severe pathfinding problems when doing ramp starts (#1927)
-        if self.flight.unit_type.dcs_unit_type == F_14A or (
+        if (
             self.flight.unit_type.dcs_unit_type == Su_33
             and group_units[0] is not None
             and group_units[0].type == KUZNECOW.id

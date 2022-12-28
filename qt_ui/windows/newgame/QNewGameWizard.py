@@ -145,6 +145,7 @@ class NewGameWizard(QtWidgets.QWizard):
         )
         generator_settings = GeneratorSettings(
             start_date=start_date,
+            start_time=campaign.recommended_start_time,
             player_budget=int(self.field("starting_money")),
             enemy_budget=int(self.field("enemy_starting_money")),
             # QSlider forces integers, so we use 1 to 50 and divide by 10 to
@@ -164,6 +165,7 @@ class NewGameWizard(QtWidgets.QWizard):
             uh_60l=self.field("uh_60l"),
             jas39_gripen=self.field("jas39_gripen"),
             su57_felon=self.field("su57_felon"),
+            ov10a_bronco=self.field("ov10a_bronco"),
             frenchpack=self.field("frenchpack"),
             high_digit_sams=self.field("high_digit_sams"),
         )
@@ -392,7 +394,8 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
         mapSettingsLayout.addWidget(invertMap, 0, 1)
         self.advanced_iads = QtWidgets.QCheckBox()
         self.registerField("advanced_iads", self.advanced_iads)
-        mapSettingsLayout.addWidget(QtWidgets.QLabel("Advanced IADS"), 1, 0)
+        self.iads_label = QtWidgets.QLabel("Advanced IADS (WIP)")
+        mapSettingsLayout.addWidget(self.iads_label, 1, 0)
         mapSettingsLayout.addWidget(self.advanced_iads, 1, 1)
         mapSettingsGroup.setLayout(mapSettingsLayout)
 
@@ -457,6 +460,7 @@ class TheaterConfiguration(QtWidgets.QWizardPage):
             else:
                 timePeriodPreset.setChecked(True)
             self.advanced_iads.setEnabled(campaign.advanced_iads)
+            self.iads_label.setEnabled(campaign.advanced_iads)
             self.advanced_iads.setChecked(campaign.advanced_iads)
             if not campaign.advanced_iads:
                 self.advanced_iads.setToolTip(
@@ -660,6 +664,8 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         self.registerField("jas39_gripen", jas39_gripen)
         su57_felon = QtWidgets.QCheckBox()
         self.registerField("su57_felon", su57_felon)
+        ov10a_bronco = QtWidgets.QCheckBox()
+        self.registerField("ov10a_bronco", ov10a_bronco)
         frenchpack = QtWidgets.QCheckBox()
         self.registerField("frenchpack", frenchpack)
         high_digit_sams = QtWidgets.QCheckBox()
@@ -703,6 +709,9 @@ class GeneratorOptions(QtWidgets.QWizardPage):
         modLayout_row += 1
         modLayout.addWidget(QtWidgets.QLabel("Su-57 Felon"), modLayout_row, 0)
         modLayout.addWidget(su57_felon, modLayout_row, 1)
+        modLayout_row += 1
+        modLayout.addWidget(QtWidgets.QLabel("OV-10A Bronco"), modLayout_row, 0)
+        modLayout.addWidget(ov10a_bronco, modLayout_row, 1)
         modLayout_row += 1
         modLayout.addWidget(QtWidgets.QLabel("Frenchpack"), modLayout_row, 0)
         modLayout.addWidget(frenchpack, modLayout_row, 1)

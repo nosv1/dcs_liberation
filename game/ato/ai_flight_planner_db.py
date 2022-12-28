@@ -10,6 +10,7 @@ from dcs.helicopters import (
     CH_47D,
     CH_53E,
     Ka_50,
+    Ka_50_3,
     Mi_24P,
     Mi_24V,
     Mi_26,
@@ -44,7 +45,6 @@ from dcs.planes import (
     FW_190A8,
     FW_190D9,
     F_117A,
-    F_14A,
     F_14A_135_GR,
     F_14B,
     F_15C,
@@ -66,6 +66,7 @@ from dcs.planes import (
     KC_135,
     KJ_2000,
     L_39ZA,
+    MB_339A,
     MQ_9_Reaper,
     M_2000C,
     MiG_15bis,
@@ -79,6 +80,15 @@ from dcs.planes import (
     MiG_29S,
     MiG_31,
     Mirage_2000_5,
+    Mirage_F1B,
+    Mirage_F1BE,
+    Mirage_F1CE,
+    Mirage_F1CT,
+    Mirage_F1C_200,
+    Mirage_F1EE,
+    Mirage_F1EQ,
+    Mirage_F1M_CE,
+    Mirage_F1M_EE,
     MosquitoFBMkVI,
     P_47D_30,
     P_47D_30bl1,
@@ -116,6 +126,7 @@ from pydcs_extensions.f104.f104 import VSN_F104G, VSN_F104S, VSN_F104S_AG
 from pydcs_extensions.f22a.f22a import F_22A
 from pydcs_extensions.hercules.hercules import Hercules
 from pydcs_extensions.jas39.jas39 import JAS39Gripen, JAS39Gripen_AG
+from pydcs_extensions.ov10a.ov10a import Bronco_OV_10A
 from pydcs_extensions.su57.su57 import Su_57
 from pydcs_extensions.uh60l.uh60l import KC130J, UH_60L
 from .flighttype import FlightType
@@ -133,7 +144,6 @@ CAP_CAPABLE = [
     F_15C,
     F_14B,
     F_14A_135_GR,
-    F_14A,
     Su_33,
     J_11A,
     Su_30,
@@ -152,6 +162,15 @@ CAP_CAPABLE = [
     MiG_23MLD,
     MiG_21Bis,
     Mirage_2000_5,
+    Mirage_F1B,
+    Mirage_F1BE,
+    Mirage_F1CE,
+    Mirage_F1EE,
+    Mirage_F1EQ,
+    Mirage_F1M_CE,
+    Mirage_F1M_EE,
+    Mirage_F1C_200,
+    Mirage_F1CT,
     F_15E,
     M_2000C,
     F_5E_3,
@@ -198,6 +217,7 @@ CAS_CAPABLE = [
     A_10A,
     B_1B,
     A_4E_C,
+    Bronco_OV_10A,
     F_14B,
     F_14A_135_GR,
     AJS37,
@@ -218,6 +238,7 @@ CAS_CAPABLE = [
     OH_58D,
     SA342M,
     SA342L,
+    Ka_50_3,
     Ka_50,
     Mi_28N,
     Mi_24P,
@@ -227,8 +248,17 @@ CAS_CAPABLE = [
     MiG_19P,
     MiG_15bis,
     M_2000C,
+    Mirage_F1B,
+    Mirage_F1BE,
+    Mirage_F1CE,
+    Mirage_F1EE,
+    Mirage_F1EQ,
+    Mirage_F1M_CE,
+    Mirage_F1M_EE,
+    Mirage_F1CT,
     F_5E_3,
     F_86F_Sabre,
+    MB_339A,
     C_101CC,
     L_39ZA,
     UH_1H,
@@ -280,6 +310,7 @@ SEAD_CAPABLE = [
 # Aircraft used for DEAD tasks. Must be capable of the CAS DCS task.
 DEAD_CAPABLE = SEAD_CAPABLE + [
     AJS37,
+    F_15E,
     F_14B,
     F_14A_135_GR,
     JAS39Gripen_AG,
@@ -297,6 +328,7 @@ DEAD_CAPABLE = SEAD_CAPABLE + [
     P_47D_30,
     P_51D_30_NA,
     P_51D,
+    Bronco_OV_10A,
     SpitfireLFMkIXCW,
     SpitfireLFMkIX,
     MosquitoFBMkVI,
@@ -344,12 +376,22 @@ STRIKE_CAPABLE = [
     A_10C,
     S_3B,
     A_4E_C,
+    Bronco_OV_10A,
     M_2000C,
+    Mirage_F1B,
+    Mirage_F1BE,
+    Mirage_F1CE,
+    Mirage_F1EE,
+    Mirage_F1EQ,
+    Mirage_F1M_CE,
+    Mirage_F1M_EE,
+    Mirage_F1CT,
     MiG_27K,
     MiG_21Bis,
     MiG_15bis,
     F_5E_3,
     F_86F_Sabre,
+    MB_339A,
     C_101CC,
     L_39ZA,
     B_17G,
@@ -437,10 +479,20 @@ RUNWAY_ATTACK_CAPABLE = [
     A_10C,
     S_3B,
     A_4E_C,
+    Bronco_OV_10A,
     M_2000C,
+    Mirage_F1B,
+    Mirage_F1BE,
+    Mirage_F1CE,
+    Mirage_F1EE,
+    Mirage_F1EQ,
+    Mirage_F1M_CE,
+    Mirage_F1M_EE,
+    Mirage_F1CT,
     MiG_27K,
     MiG_21Bis,
     MiG_15bis,
+    MB_339A,
     F_5E_3,
     F_86F_Sabre,
     C_101CC,
@@ -481,6 +533,20 @@ TRANSPORT_CAPABLE = [
     Mi_8MT,
     Mi_8MT,
     Mi_26,
+]
+
+AIR_ASSAULT_CAPABLE = [
+    CH_53E,
+    CH_47D,
+    UH_60L,
+    SH_60B,
+    UH_60A,
+    UH_1H,
+    Mi_8MT,
+    Mi_26,
+    Mi_24P,
+    Mi_24V,
+    Hercules,
 ]
 
 DRONES = [MQ_9_Reaper, RQ_1A_Predator, WingLoong_I]
@@ -538,6 +604,8 @@ def dcs_types_for_task(task: FlightType) -> Sequence[Type[FlyingType]]:
         return REFUELING_CAPABALE
     elif task == FlightType.TRANSPORT:
         return TRANSPORT_CAPABLE
+    elif task == FlightType.AIR_ASSAULT:
+        return AIR_ASSAULT_CAPABLE
     else:
         logging.error(f"Unplannable flight type: {task}")
         return []

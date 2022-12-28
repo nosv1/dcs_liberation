@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Type
 
+from game.theater.missiontarget import MissionTarget
 from game.utils import feet
 from .ibuilder import IBuilder
 from .planningerror import PlanningError
@@ -12,72 +13,40 @@ from .standard import StandardFlightPlan, StandardLayout
 from .waypointbuilder import WaypointBuilder
 
 if TYPE_CHECKING:
-    from ..flight import Flight
     from ..flightwaypoint import FlightWaypoint
-
-
-class Builder(IBuilder):
-    def build(self) -> AirliftLayout:
-        cargo = self.flight.cargo
-        if cargo is None:
-            raise PlanningError(
-                "Cannot plan transport mission for flight with no cargo."
-            )
-
-        altitude = feet(1500)
-        altitude_is_agl = True
-
-        builder = WaypointBuilder(self.flight, self.coalition)
-
-        pickup = None
-        nav_to_pickup = []
-        if cargo.origin != self.flight.departure:
-            pickup = builder.pickup(cargo.origin)
-            nav_to_pickup = builder.nav_path(
-                self.flight.departure.position,
-                cargo.origin.position,
-                altitude,
-                altitude_is_agl,
-            )
-
-        return AirliftLayout(
-            departure=builder.takeoff(self.flight.departure),
-            nav_to_pickup=nav_to_pickup,
-            pickup=pickup,
-            nav_to_drop_off=builder.nav_path(
-                cargo.origin.position,
-                cargo.next_stop.position,
-                altitude,
-                altitude_is_agl,
-            ),
-            drop_off=builder.drop_off(cargo.next_stop),
-            nav_to_home=builder.nav_path(
-                cargo.origin.position,
-                self.flight.arrival.position,
-                altitude,
-                altitude_is_agl,
-            ),
-            arrival=builder.land(self.flight.arrival),
-            divert=builder.divert(self.flight.divert),
-            bullseye=builder.bullseye(),
-        )
 
 
 @dataclass(frozen=True)
 class AirliftLayout(StandardLayout):
     nav_to_pickup: list[FlightWaypoint]
+    # There will not be a pickup waypoint when the pickup airfield is the departure
+    # airfield for cargo planes, as the cargo is pre-loaded. Helicopters will still pick
+    # up the cargo near the airfield.
     pickup: FlightWaypoint | None
+    # pickup_zone will be used for player flights to create the CTLD stuff
+    ctld_pickup_zone: FlightWaypoint | None
     nav_to_drop_off: list[FlightWaypoint]
-    drop_off: FlightWaypoint
+    # There will not be a drop-off waypoint when the drop-off airfield and the arrival
+    # airfield is the same for a cargo plane, as planes will land to unload and we don't
+    # want a double landing. Helicopters will still drop their cargo near the airfield
+    # before landing.
+    drop_off: FlightWaypoint | None
+    # drop_off_zone will be used for player flights to create the CTLD stuff
+    ctld_drop_off_zone: FlightWaypoint | None
     nav_to_home: list[FlightWaypoint]
 
     def iter_waypoints(self) -> Iterator[FlightWaypoint]:
         yield self.departure
         yield from self.nav_to_pickup
-        if self.pickup:
+        if self.pickup is not None:
             yield self.pickup
+        if self.ctld_pickup_zone is not None:
+            yield self.ctld_pickup_zone
         yield from self.nav_to_drop_off
-        yield self.drop_off
+        if self.drop_off is not None:
+            yield self.drop_off
+        if self.ctld_drop_off_zone is not None:
+            yield self.ctld_drop_off_zone
         yield from self.nav_to_home
         yield self.arrival
         if self.divert is not None:
@@ -86,16 +55,17 @@ class AirliftLayout(StandardLayout):
 
 
 class AirliftFlightPlan(StandardFlightPlan[AirliftLayout]):
-    def __init__(self, flight: Flight, layout: AirliftLayout) -> None:
-        super().__init__(flight, layout)
-
     @staticmethod
     def builder_type() -> Type[Builder]:
         return Builder
 
     @property
-    def tot_waypoint(self) -> FlightWaypoint | None:
-        return self.layout.drop_off
+    def tot_waypoint(self) -> FlightWaypoint:
+        # The TOT is the time that the cargo will be dropped off. If the drop-off
+        # location is the arrival airfield and this is not a helicopter flight, there
+        # will not be a separate drop-off waypoint; the arrival landing waypoint is the
+        # drop-off waypoint.
+        return self.layout.drop_off or self.layout.arrival
 
     def tot_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
         # TOT planning isn't really useful for transports. They're behind the front
@@ -108,3 +78,78 @@ class AirliftFlightPlan(StandardFlightPlan[AirliftLayout]):
     @property
     def mission_departure_time(self) -> timedelta:
         return self.package.time_over_target
+
+
+class Builder(IBuilder[AirliftFlightPlan, AirliftLayout]):
+    def layout(self) -> AirliftLayout:
+        cargo = self.flight.cargo
+        if cargo is None:
+            raise PlanningError(
+                "Cannot plan transport mission for flight with no cargo."
+            )
+
+        altitude = feet(1500)
+        altitude_is_agl = True
+
+        builder = WaypointBuilder(self.flight, self.coalition)
+
+        pickup = None
+        drop_off = None
+        pickup_zone = None
+        drop_off_zone = None
+
+        if cargo.origin != self.flight.departure:
+            pickup = builder.cargo_stop(cargo.origin)
+        if cargo.next_stop != self.flight.arrival:
+            drop_off = builder.cargo_stop(cargo.next_stop)
+
+        if self.flight.is_helo:
+            # Create CTLD Zones for Helo flights
+            pickup_zone = builder.pickup_zone(
+                MissionTarget(
+                    "Pickup Zone", cargo.origin.position.random_point_within(1000, 200)
+                )
+            )
+            drop_off_zone = builder.dropoff_zone(
+                MissionTarget(
+                    "Dropoff zone",
+                    cargo.next_stop.position.random_point_within(1000, 200),
+                )
+            )
+            # Show the zone waypoints only to the player
+            pickup_zone.only_for_player = True
+            drop_off_zone.only_for_player = True
+
+        nav_to_pickup = builder.nav_path(
+            self.flight.departure.position,
+            cargo.origin.position,
+            altitude,
+            altitude_is_agl,
+        )
+
+        return AirliftLayout(
+            departure=builder.takeoff(self.flight.departure),
+            nav_to_pickup=nav_to_pickup,
+            pickup=pickup,
+            ctld_pickup_zone=pickup_zone,
+            nav_to_drop_off=builder.nav_path(
+                cargo.origin.position,
+                cargo.next_stop.position,
+                altitude,
+                altitude_is_agl,
+            ),
+            drop_off=drop_off,
+            ctld_drop_off_zone=drop_off_zone,
+            nav_to_home=builder.nav_path(
+                cargo.origin.position,
+                self.flight.arrival.position,
+                altitude,
+                altitude_is_agl,
+            ),
+            arrival=builder.land(self.flight.arrival),
+            divert=builder.divert(self.flight.divert),
+            bullseye=builder.bullseye(),
+        )
+
+    def build(self) -> AirliftFlightPlan:
+        return AirliftFlightPlan(self.flight, self.layout())

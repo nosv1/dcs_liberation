@@ -85,7 +85,12 @@ class TheaterGroundObject(MissionTarget, SidcDescribable, ABC):
 
     @property
     def sidc_status(self) -> Status:
-        return Status.PRESENT_DESTROYED if self.is_dead else Status.PRESENT
+        if self.is_dead:
+            return Status.PRESENT_DESTROYED
+        elif self.dead_units:
+            return Status.PRESENT_DAMAGED
+        else:
+            return Status.PRESENT
 
     @property
     def standard_identity(self) -> StandardIdentity:
@@ -262,6 +267,11 @@ class TheaterGroundObject(MissionTarget, SidcDescribable, ABC):
             unit.position.heading += rotation
             unit.position.rotate(self.position, rotation)
 
+    @property
+    def should_head_to_conflict(self) -> bool:
+        """Should this TGO head towards the closest conflict to work properly?"""
+        return False
+
 
 class BuildingGroundObject(TheaterGroundObject):
     def __init__(
@@ -421,6 +431,10 @@ class MissileSiteGroundObject(TheaterGroundObject):
     def purchasable(self) -> bool:
         return False
 
+    @property
+    def should_head_to_conflict(self) -> bool:
+        return True
+
 
 class CoastalSiteGroundObject(TheaterGroundObject):
     def __init__(
@@ -449,6 +463,10 @@ class CoastalSiteGroundObject(TheaterGroundObject):
     def purchasable(self) -> bool:
         return False
 
+    @property
+    def should_head_to_conflict(self) -> bool:
+        return True
+
 
 class IadsGroundObject(TheaterGroundObject, ABC):
     def __init__(
@@ -473,6 +491,10 @@ class IadsGroundObject(TheaterGroundObject, ABC):
             yield FlightType.DEAD
         yield from super().mission_types(for_player)
 
+    @property
+    def should_head_to_conflict(self) -> bool:
+        return True
+
 
 # The SamGroundObject represents all type of AA
 # The TGO can have multiple types of units (AAA,SAM,Support...)
@@ -495,9 +517,13 @@ class SamGroundObject(IadsGroundObject):
     def sidc_status(self) -> Status:
         if self.is_dead:
             return Status.PRESENT_DESTROYED
-        if self.max_threat_range() > meters(0):
-            return Status.PRESENT
-        return Status.PRESENT_DAMAGED
+        elif self.dead_units:
+            if self.max_threat_range() > meters(0):
+                return Status.PRESENT
+            else:
+                return Status.PRESENT_DAMAGED
+        else:
+            return Status.PRESENT_FULLY_CAPABLE
 
     @property
     def symbol_set_and_entity(self) -> tuple[SymbolSet, Entity]:
@@ -554,6 +580,10 @@ class VehicleGroupGroundObject(TheaterGroundObject):
     def purchasable(self) -> bool:
         return True
 
+    @property
+    def should_head_to_conflict(self) -> bool:
+        return True
+
 
 class EwrGroundObject(IadsGroundObject):
     def __init__(
@@ -605,3 +635,7 @@ class IadsBuildingGroundObject(BuildingGroundObject):
 
         if not self.is_friendly(for_player):
             yield from [FlightType.STRIKE, FlightType.DEAD]
+        skippers = [FlightType.STRIKE]  # prevent yielding twice
+        for mission_type in super().mission_types(for_player):
+            if mission_type not in skippers:
+                yield mission_type

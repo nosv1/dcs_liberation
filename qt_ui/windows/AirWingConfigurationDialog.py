@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Iterator
+from typing import Iterable, Iterator, Optional
 
 from PySide2.QtCore import (
     QItemSelection,
@@ -9,24 +9,26 @@ from PySide2.QtCore import (
 )
 from PySide2.QtGui import QIcon, QStandardItem, QStandardItemModel
 from PySide2.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
+    QMessageBox,
+    QPushButton,
     QScrollArea,
     QStackedLayout,
     QTabWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
-    QCheckBox,
-    QPushButton,
-    QGridLayout,
-    QToolButton,
 )
+
 from game import Game
 from game.ato.flighttype import FlightType
 from game.coalition import Coalition
@@ -142,7 +144,6 @@ class SquadronConfigurationBox(QGroupBox):
     def __init__(self, squadron: Squadron, theater: ConflictTheater) -> None:
         super().__init__()
         self.squadron = squadron
-        self.reset_title()
 
         columns = QHBoxLayout()
         self.setLayout(columns)
@@ -152,15 +153,16 @@ class SquadronConfigurationBox(QGroupBox):
 
         left_column.addWidget(QLabel("Name:"))
         self.name_edit = QLineEdit(squadron.name)
-        self.name_edit.textChanged.connect(self.on_name_changed)
+        self.name_edit.textChanged.connect(lambda x: self.reset_title())
         left_column.addWidget(self.name_edit)
+
+        self.reset_title()
 
         nickname_edit_layout = QGridLayout()
         left_column.addLayout(nickname_edit_layout)
 
         nickname_edit_layout.addWidget(QLabel("Nickname:"), 0, 0, 1, 2)
         self.nickname_edit = QLineEdit(squadron.nickname)
-        self.nickname_edit.textChanged.connect(self.on_nickname_changed)
         nickname_edit_layout.addWidget(self.nickname_edit, 1, 0, Qt.AlignTop)
         reroll_nickname_button = QToolButton()
         reroll_nickname_button.setIcon(QIcon(ICONS["Reload"]))
@@ -174,15 +176,16 @@ class SquadronConfigurationBox(QGroupBox):
             squadron.location,
             squadron.aircraft,
         )
-        self.base_selector.currentIndexChanged.connect(self.on_base_changed)
         left_column.addWidget(self.base_selector)
 
-        if squadron.player:
+        if not squadron.player and squadron.aircraft.flyable:
+            player_label = QLabel("Player slots not available for opfor")
+        elif not squadron.aircraft.flyable:
+            player_label = QLabel("Player slots not available for non-flyable aircraft")
+        else:
             player_label = QLabel(
                 "Players (one per line, leave empty for an AI-only squadron):"
             )
-        else:
-            player_label = QLabel("Player slots not available for opfor")
         left_column.addWidget(player_label)
 
         players = [p for p in squadron.pilot_pool if p.player]
@@ -192,7 +195,7 @@ class SquadronConfigurationBox(QGroupBox):
             players = []
         self.player_list = QTextEdit("<br />".join(p.name for p in players))
         self.player_list.setAcceptRichText(False)
-        self.player_list.setEnabled(squadron.player)
+        self.player_list.setEnabled(squadron.player and squadron.aircraft.flyable)
         left_column.addWidget(self.player_list)
         delete_button = QPushButton("Remove Squadron")
         delete_button.setMaximumWidth(140)
@@ -209,21 +212,8 @@ class SquadronConfigurationBox(QGroupBox):
     def remove_from_squadron_config(self) -> None:
         self.remove_squadron_signal.emit(self.squadron)
 
-    def on_name_changed(self, text: str) -> None:
-        self.squadron.name = text
-        self.reset_title()
-
-    def on_nickname_changed(self, text: str) -> None:
-        self.squadron.nickname = text
-
-    def on_base_changed(self, index: int) -> None:
-        base = self.base_selector.itemData(index)
-        if base is None:
-            raise RuntimeError("Base cannot be none")
-        self.squadron.assign_to_base(base)
-
     def reset_title(self) -> None:
-        self.setTitle(f"{self.squadron.name} - {self.squadron.aircraft}")
+        self.setTitle(f"{self.name_edit.text()} - {self.squadron.aircraft}")
 
     def reroll_nickname(self) -> None:
         self.nickname_edit.setText(
@@ -231,6 +221,13 @@ class SquadronConfigurationBox(QGroupBox):
         )
 
     def apply(self) -> Squadron:
+        self.squadron.name = self.name_edit.text()
+        self.squadron.nickname = self.nickname_edit.text()
+        base = self.base_selector.currentData()
+        if base is None:
+            raise RuntimeError("Base cannot be none")
+        self.squadron.assign_to_base(base)
+
         player_names = self.player_list.toPlainText().splitlines()
         # Prepend player pilots so they get set active first.
         self.squadron.pilot_pool = [
@@ -355,12 +352,21 @@ class AircraftSquadronsPanel(QStackedLayout):
         for aircraft, page in self.squadrons_pages.items():
             self.air_wing.squadrons[aircraft] = page.apply()
 
+    def revert(self) -> None:
+        for _, page in self.squadrons_pages.items():
+            self.removeWidget(page)
+        self.squadrons_pages: dict[AircraftType, AircraftSquadronsPage] = {}
+        for aircraft, squadrons in self.air_wing.squadrons.items():
+            self.new_page_for_type(aircraft, squadrons)
+        self.update()
+
 
 class AircraftTypeList(QListView):
     page_index_changed = Signal(int)
 
     def __init__(self, air_wing: AirWing) -> None:
         super().__init__()
+        self.air_wing = air_wing
         self.setIconSize(QSize(91, 24))
         self.setMinimumWidth(300)
 
@@ -404,6 +410,12 @@ class AircraftTypeList(QListView):
         if name in AIRCRAFT_ICONS:
             return QIcon(AIRCRAFT_ICONS[name])
         return None
+
+    def revert(self) -> None:
+        self.item_model.clear()
+        for aircraft in self.air_wing.squadrons:
+            self.add_aircraft_type(aircraft)
+        self.update()
 
 
 class AirWingConfigurationTab(QWidget):
@@ -480,6 +492,11 @@ class AirWingConfigurationTab(QWidget):
     def apply(self) -> None:
         self.squadrons_panel.apply()
 
+    def revert(self) -> None:
+        self.type_list.revert()
+        self.squadrons_panel.revert()
+        self.update()
+
 
 class AirWingConfigurationDialog(QDialog):
     """Dialog window for air wing configuration."""
@@ -502,19 +519,46 @@ class AirWingConfigurationDialog(QDialog):
 
         layout.addWidget(doc_label)
 
-        tab_widget = QTabWidget()
-        layout.addWidget(tab_widget)
+        self.tab_widget = QTabWidget()
+        layout.addWidget(self.tab_widget)
 
         self.tabs = []
         for coalition in game.coalitions:
             coalition_tab = AirWingConfigurationTab(coalition, game)
             name = "Blue" if coalition.player else "Red"
-            tab_widget.addTab(coalition_tab, name)
+            self.tab_widget.addTab(coalition_tab, name)
             self.tabs.append(coalition_tab)
 
-    def reject(self) -> None:
+        buttons_layout = QHBoxLayout()
+        apply_button = QPushButton("Accept Changes && Start Campaign")
+        apply_button.setProperty("style", "btn-accept")
+        apply_button.clicked.connect(lambda state: self.accept())
+        discard_button = QPushButton("Reset Changes")
+        discard_button.setProperty("style", "btn-danger")
+        discard_button.clicked.connect(lambda state: self.revert())
+        buttons_layout.addWidget(discard_button)
+        buttons_layout.addWidget(apply_button)
+        layout.addLayout(buttons_layout)
+
+    def revert(self) -> None:
+        for tab in self.tabs:
+            tab.revert()
+
+    def accept(self) -> None:
         for tab in self.tabs:
             tab.apply()
+        super().accept()
+
+    def reject(self) -> None:
+        result = QMessageBox.information(
+            None,
+            "Discard changes?",
+            "Are you sure you want to discard your changes and start the campaign?",
+            QMessageBox.Yes,
+            QMessageBox.No,
+        )
+        if result == QMessageBox.No:
+            return
         super().reject()
 
 

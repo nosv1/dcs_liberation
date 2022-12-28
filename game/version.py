@@ -1,20 +1,28 @@
 from pathlib import Path
 
 
-MAJOR_VERSION = 6
+MAJOR_VERSION = 7
 MINOR_VERSION = 0
 MICRO_VERSION = 0
+VERSION_NUMBER = ".".join(str(v) for v in (MAJOR_VERSION, MINOR_VERSION, MICRO_VERSION))
+
+
+def _optional_build_id_component(path: Path) -> str | None:
+    if path.exists():
+        return path.read_text().strip()
+    return None
+
+
+BUILD_NUMBER = _optional_build_id_component(Path("resources/buildnumber"))
+GIT_SHA = _optional_build_id_component(Path("resources/gitsha"))
 
 
 def _build_version_string() -> str:
-    components = [
-        ".".join(str(v) for v in (MAJOR_VERSION, MINOR_VERSION, MICRO_VERSION))
-    ]
-    build_number_path = Path("resources/buildnumber")
-    if build_number_path.exists():
-        with build_number_path.open("r", encoding="utf-8") as build_number_file:
-            components.append(build_number_file.readline())
-
+    components = [VERSION_NUMBER]
+    if BUILD_NUMBER is not None:
+        components.append(BUILD_NUMBER)
+    if GIT_SHA is not None:
+        components.append(GIT_SHA)
     if not Path("resources/final").exists():
         components.append("preview")
 
@@ -134,6 +142,10 @@ VERSION = _build_version_string()
 #:   also used later in mission generation to orient the group accordingly.
 #:   This removes the randomization of the orientation from the generation.
 #:   Most campaigns will not need any updates and will work out of the box.
+#:   If the campaign designer sets the heading to 0 then we will automatically change
+#:   the orientation of the generated TGO to head towards the conflict if it is
+#:   required by the TGO to work properly. Values other than 0 will prevent the
+#:   automatic orientation.
 #:
 #: Version 10.1
 #: * Campaign designers can now define the recommended economy settings:
@@ -146,4 +158,15 @@ VERSION = _build_version_string()
 #: * Campaign files can optionally define the iads configuration
 #:   It is possible to define if the campaign supports advanced iads
 #:
-CAMPAIGN_FORMAT_VERSION = (10, 2)
+#: Version 10.3
+#: * Campaign files can optionally include a start time in their recommended_start_date
+#:   field. For example, `recommended_start_date: 2022-08-31 13:30:00` will have the
+#:   first turn start at 13:30. If omitted, or if only a date is given, the mission will
+#:   start at a random hour in the middle of the day as before.
+#:
+#: Version 10.4
+#: * Support for the Falklands.
+#:
+#: Version 10.5
+#: * Support for scenery objectives defined by quad zones.
+CAMPAIGN_FORMAT_VERSION = (10, 5)

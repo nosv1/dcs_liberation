@@ -24,9 +24,19 @@
     "F/A-18C Hornet (Lot 20)",
     "JF-17 Thunder",
     "Ka-50 Hokum",
+    "Ka-50 Hokum (Blackshark 3)",
     "Mirage 2000C",
+    "Mirage-F1B",
+    "Mirage-F1BE",
+    "Mirage-F1CE",
+    "Mirage-F1C-200",
+    "Mirage-F1CT",
+    "Mirage-F1EE",
+    "Mirage-F1M-CE",
+    "Mirage-F1M-EE",
     "Mi-24P Hind-F",
     "Mi-8MTV2 Hip",
+    "MiG-29S Fulcrum-C",
     "SA 342L Gazelle",
     "SA 342M Gazelle",
     "Su-25T Frogfoot",
@@ -101,5 +111,13 @@
   ],
   "has_jtac": true,
   "jtac_unit": "MQ-9 Reaper",
-  "unrestricted_satnav": true
+  "unrestricted_satnav": true,
+  "liveries_overrides": {
+    "Ka-50 Hokum": ["georgia camo"],  
+    "Mi-8MTV2 Hip": ["Ukraine"],
+    "Mi-24P Hind-F": ["Ukrainian Army Aviation"],
+    "MiG-29S Fulcrum-C": ["Air Force Ukraine Standard"],
+    "Su-25T Frogfoot": ["af standard 101"],
+    "Su-27 Flanker-B": ["Air Force Ukraine Standard"]
+  }
 }

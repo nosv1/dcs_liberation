@@ -4,9 +4,7 @@ from PySide2.QtWidgets import QGroupBox, QLabel, QMessageBox, QVBoxLayout
 
 from game import Game
 from game.ato.flight import Flight
-from game.ato.flightplans.flightplanbuilder import FlightPlanBuilder
 from game.ato.flightplans.planningerror import PlanningError
-from game.ato.traveltime import TotEstimator
 from qt_ui.models import PackageModel
 from qt_ui.widgets.QLabeledWidget import QLabeledWidget
 from qt_ui.widgets.combos.QArrivalAirfieldSelector import QArrivalAirfieldSelector
@@ -37,15 +35,8 @@ class FlightAirfieldDisplay(QGroupBox):
             )
         )
 
-        self.arrival = QArrivalAirfieldSelector(
-            [cp for cp in game.theater.controlpoints if cp.captured],
-            flight.unit_type,
-            "Same as departure",
-        )
-        self.arrival.currentIndexChanged.connect(self.set_arrival)
-        if flight.arrival != flight.departure:
-            self.arrival.setCurrentText(flight.arrival.name)
-        layout.addLayout(QLabeledWidget("Arrival:", self.arrival))
+        arrival_label = QLabel(f"<b>{flight.arrival.name}</b>")
+        layout.addLayout(QLabeledWidget("Arrival:", arrival_label))
 
         self.divert = QArrivalAirfieldSelector(
             [cp for cp in game.theater.controlpoints if cp.captured],
@@ -60,28 +51,13 @@ class FlightAirfieldDisplay(QGroupBox):
         self.setLayout(layout)
 
     def update_departure_time(self) -> None:
-        estimator = TotEstimator(self.package_model.package)
-        delay = estimator.mission_start_time(self.flight)
-        self.departure_time.setText(f"At T+{delay}")
-
-    def set_arrival(self, index: int) -> None:
-        old_arrival = self.flight.arrival
-        arrival = self.arrival.itemData(index)
-        if arrival == old_arrival:
+        if not self.flight.package.flights:
+            # This is theoretically impossible, but for some reason the dialog that owns
+            # this object QEditFlightDialog does not dispose properly on close, so this
+            # handler may be called for a flight whose package has been canceled, which
+            # is an invalid state for calling anything in TotEstimator.
             return
-
-        if arrival is None:
-            arrival = self.flight.departure
-
-        self.flight.arrival = arrival
-        try:
-            self.update_flight_plan()
-        except PlanningError as ex:
-            self.flight.arrival = old_arrival
-            logging.exception("Could not change arrival airfield")
-            QMessageBox.critical(
-                self, "Could not update flight plan", str(ex), QMessageBox.Ok
-            )
+        self.departure_time.setText(f"At T+{self.flight.flight_plan.startup_time()}")
 
     def set_divert(self, index: int) -> None:
         old_divert = self.flight.divert
@@ -91,16 +67,10 @@ class FlightAirfieldDisplay(QGroupBox):
 
         self.flight.divert = divert
         try:
-            self.update_flight_plan()
+            self.flight.recreate_flight_plan()
         except PlanningError as ex:
             self.flight.divert = old_divert
             logging.exception("Could not change divert airfield")
             QMessageBox.critical(
                 self, "Could not update flight plan", str(ex), QMessageBox.Ok
             )
-
-    def update_flight_plan(self) -> None:
-        planner = FlightPlanBuilder(
-            self.package_model.package, self.game.blue, self.game.theater
-        )
-        planner.populate_flight_plan(self.flight)

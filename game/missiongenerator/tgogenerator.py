@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import logging
 import random
-from collections import defaultdict
 from typing import Any, Dict, Iterator, List, Optional, TYPE_CHECKING, Type
 
 import dcs.vehicles
-from dcs import Mission, Point, unitgroup
+from dcs import Mission, Point
 from dcs.action import DoScript, SceneryDestructionZone
 from dcs.condition import MapObjectIsDead
 from dcs.country import Country
-from dcs.point import StaticPoint
 from dcs.ships import (
     CVN_71,
     CVN_72,
@@ -27,21 +25,29 @@ from dcs.ships import (
 )
 from dcs.statics import Fortification
 from dcs.task import (
+    ActivateACLSCommand,
     ActivateBeaconCommand,
     ActivateICLSCommand,
     ActivateLink4Command,
-    ActivateACLSCommand,
     EPLRS,
     FireAtPoint,
     OptAlarmState,
 )
 from dcs.translation import String
-from dcs.triggers import Event, TriggerOnce, TriggerStart, TriggerZone
-from dcs.unit import Unit, InvisibleFARP
+from dcs.triggers import (
+    Event,
+    TriggerOnce,
+    TriggerStart,
+    TriggerZone,
+    TriggerZoneCircular,
+    TriggerZoneQuadPoint,
+)
+from dcs.unit import InvisibleFARP, Unit
 from dcs.unitgroup import MovingGroup, ShipGroup, StaticGroup, VehicleGroup
 from dcs.unittype import ShipType, VehicleType
 from dcs.vehicles import vehicle_map
 
+from game.missiongenerator.missiondata import CarrierInfo, MissionData
 from game.radio.radios import RadioFrequency, RadioRegistry
 from game.radio.tacan import TacanBand, TacanChannel, TacanRegistry, TacanUsage
 from game.runways import RunwayData
@@ -52,7 +58,7 @@ from game.theater.theatergroundobject import (
     LhaGroundObject,
     MissileSiteGroundObject,
 )
-from game.theater.theatergroup import SceneryUnit, TheaterGroup, IadsGroundGroup
+from game.theater.theatergroup import IadsGroundGroup, SceneryUnit
 from game.unitmap import UnitMap
 from game.utils import Heading, feet, knots, mps
 
@@ -98,6 +104,7 @@ class GroundObjectGenerator:
                         self.add_trigger_zone_for_scenery(unit)
                         if (
                             self.game.settings.plugin_option("skynetiads")
+                            and self.game.theater.iads_network.advanced_iads
                             and isinstance(group, IadsGroundGroup)
                             and group.iads_role.participate
                         ):
@@ -141,7 +148,7 @@ class GroundObjectGenerator:
                 vehicle_unit.position = unit.position
                 vehicle_unit.heading = unit.position.heading.degrees
                 vehicle_group.add_unit(vehicle_unit)
-            self._register_theater_unit(unit, vehicle_group.units[-1])
+            self._register_theater_unit(vehicle_group.id, unit, vehicle_group.units[-1])
         if vehicle_group is None:
             raise RuntimeError(f"Error creating VehicleGroup for {group_name}")
         return vehicle_group
@@ -174,7 +181,7 @@ class GroundObjectGenerator:
                 ship_unit.position = unit.position
                 ship_unit.heading = unit.position.heading.degrees
                 ship_group.add_unit(ship_unit)
-            self._register_theater_unit(unit, ship_group.units[-1])
+            self._register_theater_unit(ship_group.id, unit, ship_group.units[-1])
         if ship_group is None:
             raise RuntimeError(f"Error creating ShipGroup for {group_name}")
         return ship_group
@@ -188,7 +195,7 @@ class GroundObjectGenerator:
             heading=unit.position.heading.degrees,
             dead=not unit.alive,
         )
-        self._register_theater_unit(unit, static_group.units[0])
+        self._register_theater_unit(static_group.id, unit, static_group.units[0])
 
     @staticmethod
     def enable_eplrs(group: VehicleGroup, unit_type: Type[VehicleType]) -> None:
@@ -203,10 +210,11 @@ class GroundObjectGenerator:
 
     def _register_theater_unit(
         self,
+        dcs_group_id: int,
         theater_unit: TheaterUnit,
         dcs_unit: Unit,
     ) -> None:
-        self.unit_map.add_theater_unit_mapping(theater_unit, dcs_unit)
+        self.unit_map.add_theater_unit_mapping(dcs_group_id, theater_unit, dcs_unit)
 
     def add_trigger_zone_for_scenery(self, scenery: SceneryUnit) -> None:
         # Align the trigger zones to the faction color on the DCS briefing/F10 map.
@@ -216,18 +224,17 @@ class GroundObjectGenerator:
             else {1: 1, 2: 0.2, 3: 0.2, 4: 0.15}
         )
 
-        # Create the smallest valid size trigger zone (16 feet) so that risk of overlap
-        # is minimized. As long as the triggerzone is over the scenery object, we're ok.
-        smallest_valid_radius = feet(16).meters
+        trigger_zone: TriggerZone
+        if isinstance(scenery.zone, TriggerZoneCircular):
+            trigger_zone = self.create_circular_scenery_trigger(scenery.zone, color)
+        elif isinstance(scenery.zone, TriggerZoneQuadPoint):
+            trigger_zone = self.create_quad_scenery_trigger(scenery.zone, color)
+        else:
+            raise ValueError(
+                f"Invalid trigger zone type found for {scenery.name} in "
+                f"{self.ground_object.name}: {scenery.zone.__class__.__name__}"
+            )
 
-        trigger_zone = self.m.triggers.add_triggerzone(
-            scenery.zone.position,
-            smallest_valid_radius,
-            scenery.zone.hidden,
-            scenery.zone.name,
-            color,
-            scenery.zone.properties,
-        )
         # DCS only visually shows a scenery object is dead when
         # this trigger rule is applied.  Otherwise you can kill a
         # structure twice.
@@ -237,6 +244,34 @@ class GroundObjectGenerator:
             self.generate_on_dead_trigger_rule(trigger_zone)
 
         self.unit_map.add_scenery(scenery, trigger_zone)
+
+    def create_circular_scenery_trigger(
+        self, zone: TriggerZoneCircular, color: dict[int, float]
+    ) -> TriggerZoneCircular:
+        # Create the smallest valid size trigger zone (16 feet) so that risk of overlap
+        # is minimized. As long as the triggerzone is over the scenery object, we're ok.
+        smallest_valid_radius = feet(16).meters
+
+        return self.m.triggers.add_triggerzone(
+            zone.position,
+            smallest_valid_radius,
+            zone.hidden,
+            zone.name,
+            color,
+            zone.properties,
+        )
+
+    def create_quad_scenery_trigger(
+        self, zone: TriggerZoneQuadPoint, color: dict[int, float]
+    ) -> TriggerZoneQuadPoint:
+        return self.m.triggers.add_triggerzone_quad(
+            zone.position,
+            zone.verticies,
+            zone.hidden,
+            zone.name,
+            color,
+            zone.properties,
+        )
 
     def generate_destruction_trigger_rule(self, trigger_zone: TriggerZone) -> None:
         # Add destruction zone trigger
@@ -258,13 +293,13 @@ class GroundObjectGenerator:
         self.m.triggerrules.triggers.append(t)
 
     def generate_iads_command_unit(self, unit: SceneryUnit) -> None:
-        # Creates a static Infantry Unit next to a scenery object. This is needed
-        # because skynet can not use map objects as Comms, Power or Command and needs a
-        # "real" unit to function correctly
+        # Creates a static Unit (tyre with red flag) next to a scenery object. This is
+        # needed because skynet can not use map objects as Comms, Power or Command and
+        # needs a "real" unit to function correctly
         self.m.static_group(
             country=self.country,
             name=unit.unit_name,
-            _type=dcs.vehicles.Infantry.Soldier_M4,
+            _type=dcs.statics.Fortification.Black_Tyre_RF,
             position=unit.position,
             heading=unit.position.heading.degrees,
             dead=not unit.alive,  # Also spawn as dead!
@@ -351,6 +386,7 @@ class GenericCarrierGenerator(GroundObjectGenerator):
         icls_alloc: Iterator[int],
         runways: Dict[str, RunwayData],
         unit_map: UnitMap,
+        mission_data: MissionData,
     ) -> None:
         super().__init__(ground_object, country, game, mission, unit_map)
         self.ground_object = ground_object
@@ -359,6 +395,7 @@ class GenericCarrierGenerator(GroundObjectGenerator):
         self.tacan_registry = tacan_registry
         self.icls_alloc = icls_alloc
         self.runways = runways
+        self.mission_data = mission_data
 
     def generate(self) -> None:
 
@@ -370,7 +407,17 @@ class GenericCarrierGenerator(GroundObjectGenerator):
                 logging.warning(f"Found empty carrier group in {self.control_point}")
                 continue
 
-            ship_group = self.create_ship_group(group.group_name, group.units, atc)
+            ship_units = []
+            for unit in group.units:
+                if unit.alive:
+                    # All alive Ships
+                    ship_units.append(unit)
+
+            if not ship_units:
+                # No alive units in this group, continue with next group
+                continue
+
+            ship_group = self.create_ship_group(group.group_name, ship_units, atc)
 
             # Always steam into the wind, even if the carrier is being moved.
             # There are multiple unsimulated hours between turns, so we can
@@ -379,7 +426,7 @@ class GenericCarrierGenerator(GroundObjectGenerator):
             brc = self.steam_into_wind(ship_group)
 
             # Set Carrier Specific Options
-            if g_id == 0:
+            if g_id == 0 and self.control_point.runway_is_operational():
                 # Get Correct unit type for the carrier.
                 # This will upgrade to super carrier if option is enabled
                 carrier_type = self.carrier_type
@@ -400,6 +447,16 @@ class GenericCarrierGenerator(GroundObjectGenerator):
                 self.add_runway_data(
                     brc or Heading.from_degrees(0), atc, tacan, tacan_callsign, icls
                 )
+                self.mission_data.carriers.append(
+                    CarrierInfo(
+                        group_name=ship_group.name,
+                        unit_name=ship_group.units[0].name,
+                        callsign=tacan_callsign,
+                        freq=atc,
+                        tacan=tacan,
+                        blue=self.control_point.captured,
+                    )
+                )
 
     @property
     def carrier_type(self) -> Optional[Type[ShipType]]:
@@ -417,6 +474,8 @@ class GenericCarrierGenerator(GroundObjectGenerator):
             if self.game.theater.is_in_sea(point):
                 group.points[0].speed = carrier_speed.meters_per_second
                 group.add_waypoint(point, carrier_speed.kph)
+                # Rotate the whole ground object to the new course
+                self.ground_object.rotate(brc)
                 return brc
         return None
 
@@ -602,6 +661,7 @@ class TgoGenerator:
         radio_registry: RadioRegistry,
         tacan_registry: TacanRegistry,
         unit_map: UnitMap,
+        mission_data: MissionData,
     ) -> None:
         self.m = mission
         self.game = game
@@ -611,6 +671,7 @@ class TgoGenerator:
         self.icls_alloc = iter(range(1, 21))
         self.runways: Dict[str, RunwayData] = {}
         self.helipads: dict[ControlPoint, StaticGroup] = {}
+        self.mission_data = mission_data
 
     def generate(self) -> None:
         for cp in self.game.theater.controlpoints:
@@ -638,6 +699,7 @@ class TgoGenerator:
                         self.icls_alloc,
                         self.runways,
                         self.unit_map,
+                        self.mission_data,
                     )
                 elif isinstance(ground_object, LhaGroundObject):
                     generator = LhaGenerator(
@@ -651,6 +713,7 @@ class TgoGenerator:
                         self.icls_alloc,
                         self.runways,
                         self.unit_map,
+                        self.mission_data,
                     )
                 elif isinstance(ground_object, MissileSiteGroundObject):
                     generator = MissileSiteGenerator(
@@ -661,3 +724,4 @@ class TgoGenerator:
                         ground_object, country, self.game, self.m, self.unit_map
                     )
                 generator.generate()
+        self.mission_data.runways = list(self.runways.values())

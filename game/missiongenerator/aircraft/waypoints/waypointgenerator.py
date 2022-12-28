@@ -16,11 +16,16 @@ from game.ato import Flight, FlightWaypoint
 from game.ato.flightstate import InFlight, WaitingForStart
 from game.ato.flightwaypointtype import FlightWaypointType
 from game.ato.starttype import StartType
-from game.missiongenerator.airsupport import AirSupport
+from game.missiongenerator.aircraft.waypoints.cargostop import CargoStopBuilder
+from game.missiongenerator.aircraft.waypoints.recoverytanker import (
+    RecoveryTankerBuilder,
+)
+from game.missiongenerator.missiondata import MissionData
 from game.settings import Settings
+from game.unitmap import UnitMap
 from game.utils import pairwise
 from .baiingress import BaiIngressBuilder
-from .cargostop import CargoStopBuilder
+from .landingzone import LandingZoneBuilder
 from .casingress import CasIngressBuilder
 from .deadingress import DeadIngressBuilder
 from .default import DefaultWaypointBuilder
@@ -48,7 +53,8 @@ class WaypointGenerator:
         turn_start_time: datetime,
         time: datetime,
         settings: Settings,
-        air_support: AirSupport,
+        mission_data: MissionData,
+        unit_map: UnitMap,
     ) -> None:
         self.flight = flight
         self.group = group
@@ -56,7 +62,8 @@ class WaypointGenerator:
         self.elapsed_mission_time = time - turn_start_time
         self.time = time
         self.settings = settings
-        self.air_support = air_support
+        self.mission_data = mission_data
+        self.unit_map = unit_map
 
     def create_waypoints(self) -> tuple[timedelta, list[FlightWaypoint]]:
         for waypoint in self.flight.points:
@@ -117,7 +124,6 @@ class WaypointGenerator:
 
     def builder_for_waypoint(self, waypoint: FlightWaypoint) -> PydcsWaypointBuilder:
         builders = {
-            FlightWaypointType.DROP_OFF: CargoStopBuilder,
             FlightWaypointType.INGRESS_BAI: BaiIngressBuilder,
             FlightWaypointType.INGRESS_CAS: CasIngressBuilder,
             FlightWaypointType.INGRESS_DEAD: DeadIngressBuilder,
@@ -132,8 +138,11 @@ class WaypointGenerator:
             FlightWaypointType.LOITER: HoldPointBuilder,
             FlightWaypointType.PATROL: RaceTrackEndBuilder,
             FlightWaypointType.PATROL_TRACK: RaceTrackBuilder,
-            FlightWaypointType.PICKUP: CargoStopBuilder,
+            FlightWaypointType.PICKUP_ZONE: LandingZoneBuilder,
+            FlightWaypointType.DROPOFF_ZONE: LandingZoneBuilder,
             FlightWaypointType.REFUEL: RefuelPointBuilder,
+            FlightWaypointType.RECOVERY_TANKER: RecoveryTankerBuilder,
+            FlightWaypointType.CARGO_STOP: CargoStopBuilder,
         }
         builder = builders.get(waypoint.waypoint_type, DefaultWaypointBuilder)
         return builder(
@@ -142,7 +151,8 @@ class WaypointGenerator:
             self.flight,
             self.mission,
             self.elapsed_mission_time,
-            self.air_support,
+            self.mission_data,
+            self.unit_map,
         )
 
     def _estimate_min_fuel_for(self, waypoints: list[FlightWaypoint]) -> None:

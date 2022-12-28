@@ -4,7 +4,7 @@ import itertools
 import logging
 import math
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Any, List, TYPE_CHECKING, Type, Union, cast
 from uuid import UUID
@@ -37,7 +37,8 @@ from .theater.theatergroundobject import (
     TheaterGroundObject,
 )
 from .theater.transitnetwork import TransitNetwork, TransitNetworkBuilder
-from .weather import Conditions, TimeOfDay
+from .timeofday import TimeOfDay
+from .weather import Conditions
 
 if TYPE_CHECKING:
     from .ato.airtaaskingorder import AirTaskingOrder
@@ -95,6 +96,7 @@ class Game:
         theater: ConflictTheater,
         air_wing_config: CampaignAirWingConfig,
         start_date: datetime,
+        start_time: time | None,
         settings: Settings,
         player_budget: float,
         enemy_budget: float,
@@ -119,7 +121,15 @@ class Game:
 
         self.db = GameDb()
 
-        self.conditions = self.generate_conditions()
+        if start_time is None:
+            self.time_of_day_offset_for_start_time = list(TimeOfDay).index(
+                TimeOfDay.Day
+            )
+        else:
+            self.time_of_day_offset_for_start_time = list(TimeOfDay).index(
+                self.theater.daytime_map.best_guess_time_of_day_at(start_time)
+            )
+        self.conditions = self.generate_conditions(forced_time=start_time)
 
         self.sanitize_sides(player_faction, enemy_faction)
         self.blue = Coalition(self, player_faction, player_budget, player=True)
@@ -154,9 +164,13 @@ class Game:
     def transit_network_for(self, player: bool) -> TransitNetwork:
         return self.coalition_for(player).transit_network
 
-    def generate_conditions(self) -> Conditions:
+    def generate_conditions(self, forced_time: time | None = None) -> Conditions:
         return Conditions.generate(
-            self.theater, self.current_day, self.current_turn_time_of_day, self.settings
+            self.theater,
+            self.current_day,
+            self.current_turn_time_of_day,
+            self.settings,
+            forced_time=forced_time,
         )
 
     @staticmethod
@@ -217,7 +231,7 @@ class Game:
         naming.namegen = self.name_generator
         LuaPluginManager.load_settings(self.settings)
         ObjectiveDistanceCache.set_theater(self.theater)
-        self.compute_unculled_zones()
+        self.compute_unculled_zones(GameUpdateEvents())
         if not game_still_initializing:
             # We don't need to push events that happen during load. The UI will fully
             # reset when we're done.
@@ -271,7 +285,10 @@ class Game:
                     events.update_front_line(front_line)
                 cp.base.affect_strength(+PLAYER_BASE_STRENGTH_RECOVERY)
 
-        self.conditions = self.generate_conditions()
+        # We don't actually advance time or change the conditions between turn 0 and
+        # turn 1.
+        if self.turn > 1:
+            self.conditions = self.generate_conditions()
 
     def begin_turn_0(self) -> None:
         """Initialization for the first turn of the game."""
@@ -285,6 +302,18 @@ class Game:
             control_point.initialize_turn_0()
             for tgo in control_point.connected_objectives:
                 self.db.tgos.add(tgo.id, tgo)
+
+        # Correct the heading of specifc TGOs, can only be done after init turn 0
+        for tgo in self.theater.ground_objects:
+            # If heading is 0 then we change the orientation to head towards the
+            # closest conflict. Heading of 0 means that the campaign designer wants
+            # to determine the heading automatically by liberation. Values other
+            # than 0 mean it is custom defined.
+            if tgo.should_head_to_conflict and tgo.heading.degrees == 0:
+                # Calculate the heading to conflict
+                heading = self.theater.heading_to_conflict_from(tgo.position)
+                # Rotate the whole TGO with the new heading
+                tgo.rotate(heading or tgo.heading)
 
         self.blue.preinit_turn_0()
         self.red.preinit_turn_0()
@@ -303,6 +332,8 @@ class Game:
         from .server import EventStream
         from .sim import GameUpdateEvents
 
+        persistency.save_last_turn_state(self)
+
         events = GameUpdateEvents()
 
         logging.info("Pass turn")
@@ -312,7 +343,6 @@ class Game:
         with logged_duration("Turn initialization"):
             self.initialize_turn(events)
 
-        events.begin_new_turn()
         EventStream.put_nowait(events)
 
         # Autosave progress
@@ -405,14 +435,17 @@ class Game:
 
         # Update cull zones
         with logged_duration("Computing culling positions"):
-            self.compute_unculled_zones()
+            self.compute_unculled_zones(events)
+
+        events.begin_new_turn()
 
     def message(self, title: str, text: str = "") -> None:
         self.informations.append(Information(title, text, turn=self.turn))
 
     @property
     def current_turn_time_of_day(self) -> TimeOfDay:
-        return list(TimeOfDay)[self.turn % 4]
+        tod_turn = max(0, self.turn - 1) + self.time_of_day_offset_for_start_time
+        return list(TimeOfDay)[tod_turn % 4]
 
     @property
     def current_day(self) -> date:
@@ -447,7 +480,7 @@ class Game:
     def navmesh_for(self, player: bool) -> NavMesh:
         return self.coalition_for(player).nav_mesh
 
-    def compute_unculled_zones(self) -> None:
+    def compute_unculled_zones(self, events: GameUpdateEvents) -> None:
         """
         Compute the current conflict position(s) used for culling calculation
         """
@@ -502,6 +535,7 @@ class Game:
             zones.append(package.target.position)
 
         self.__culling_zones = zones
+        events.update_unculled_zones(zones)
 
     def add_destroyed_units(self, data: dict[str, Union[float, str]]) -> None:
         pos = Point(

@@ -1,18 +1,38 @@
 from __future__ import annotations
 
-import logging
-from typing import Tuple, Optional
+from dataclasses import dataclass
+from functools import cached_property
+from typing import Optional, Tuple
 
-from dcs.country import Country
 from dcs.mapping import Point
 from shapely.geometry import LineString, Point as ShapelyPoint
+from shapely.ops import nearest_points
 
 from game.theater.conflicttheater import ConflictTheater, FrontLine
 from game.theater.controlpoint import ControlPoint
-from game.utils import Heading
-
+from game.utils import Heading, dcs_to_shapely_point
 
 FRONTLINE_LENGTH = 80000
+
+
+@dataclass(frozen=True)
+class FrontLineBounds:
+    left_position: Point
+    right_position: Point
+
+    @cached_property
+    def length(self) -> int:
+        return int(self.left_position.distance_to_point(self.right_position))
+
+    @cached_property
+    def center(self) -> Point:
+        return (self.left_position + self.right_position) / 2
+
+    @cached_property
+    def heading_from_left_to_right(self) -> Heading:
+        return Heading(
+            int(self.left_position.heading_between_point(self.right_position))
+        )
 
 
 class FrontLineConflictDescription:
@@ -20,20 +40,10 @@ class FrontLineConflictDescription:
         self,
         theater: ConflictTheater,
         front_line: FrontLine,
-        attackers_side: str,
-        defenders_side: str,
-        attackers_country: Country,
-        defenders_country: Country,
         position: Point,
         heading: Optional[Heading] = None,
         size: Optional[int] = None,
     ):
-
-        self.attackers_side = attackers_side
-        self.defenders_side = defenders_side
-        self.attackers_country = attackers_country
-        self.defenders_country = defenders_country
-
         self.front_line = front_line
         self.theater = theater
         self.position = position
@@ -49,28 +59,22 @@ class FrontLineConflictDescription:
         return self.front_line.red_cp
 
     @classmethod
-    def has_frontline_between(cls, from_cp: ControlPoint, to_cp: ControlPoint) -> bool:
-        return from_cp.has_frontline and to_cp.has_frontline
-
-    @classmethod
     def frontline_position(
         cls, frontline: FrontLine, theater: ConflictTheater
     ) -> Tuple[Point, Heading]:
-        attack_heading = frontline.attack_heading
+        attack_heading = frontline.blue_forward_heading
         position = cls.find_ground_position(
             frontline.position,
             FRONTLINE_LENGTH,
             attack_heading.right,
             theater,
         )
-        if position is None:
-            raise RuntimeError("Could not find front line position")
         return position, attack_heading.opposite
 
     @classmethod
-    def frontline_vector(
+    def frontline_bounds(
         cls, front_line: FrontLine, theater: ConflictTheater
-    ) -> Tuple[Point, Heading, int]:
+    ) -> FrontLineBounds:
         """
         Returns a vector for a valid frontline location avoiding exclusion zones.
         """
@@ -83,31 +87,22 @@ class FrontLineConflictDescription:
         right_position = cls.extend_ground_position(
             center_position, int(FRONTLINE_LENGTH / 2), right_heading, theater
         )
-        distance = int(left_position.distance_to_point(right_position))
-        return left_position, right_heading, distance
+        return FrontLineBounds(left_position, right_position)
 
     @classmethod
     def frontline_cas_conflict(
-        cls,
-        attacker_name: str,
-        defender_name: str,
-        attacker: Country,
-        defender: Country,
-        front_line: FrontLine,
-        theater: ConflictTheater,
+        cls, front_line: FrontLine, theater: ConflictTheater
     ) -> FrontLineConflictDescription:
-        assert cls.has_frontline_between(front_line.blue_cp, front_line.red_cp)
-        position, heading, distance = cls.frontline_vector(front_line, theater)
-        conflict = cls(
-            position=position,
-            heading=heading,
+        # TODO: Break apart the front-line and air conflict descriptions.
+        # We're wastefully not caching the front-line bounds here because air conflicts
+        # can't compute bounds, only a position.
+        bounds = cls.frontline_bounds(front_line, theater)
+        conflict = FrontLineConflictDescription(
+            position=bounds.left_position,
+            heading=bounds.heading_from_left_to_right,
             theater=theater,
             front_line=front_line,
-            attackers_side=attacker_name,
-            defenders_side=defender_name,
-            attackers_country=attacker,
-            defenders_country=defender,
-            size=distance,
+            size=bounds.length,
         )
         return conflict
 
@@ -146,25 +141,29 @@ class FrontLineConflictDescription:
         max_distance: int,
         heading: Heading,
         theater: ConflictTheater,
-        coerce: bool = True,
-    ) -> Optional[Point]:
+    ) -> Point:
+        """Finds a valid ground position for the front line center.
+
+        Checks for positions along the front line first. If none succeed, the nearest
+        land position to the initial point is used.
         """
-        Finds the nearest valid ground position along a provided heading and it's inverse up to max_distance.
-        `coerce=True` will return the closest land position to `initial` regardless of heading or distance
-        `coerce=False` will return None if a point isn't found
-        """
-        pos = initial
-        if theater.is_on_land(pos):
-            return pos
-        for distance in range(0, int(max_distance), 100):
-            pos = initial.point_from_heading(heading.degrees, distance)
-            if theater.is_on_land(pos):
-                return pos
-            pos = initial.point_from_heading(heading.opposite.degrees, distance)
-            if theater.is_on_land(pos):
-                return pos
-        if coerce:
-            pos = theater.nearest_land_pos(initial)
-            return pos
-        logging.error("Didn't find ground position ({})!".format(initial))
-        return None
+        if theater.landmap is None:
+            return initial
+
+        line = LineString(
+            [
+                dcs_to_shapely_point(
+                    initial.point_from_heading(heading.degrees, max_distance)
+                ),
+                dcs_to_shapely_point(
+                    initial.point_from_heading(heading.opposite.degrees, max_distance)
+                ),
+            ]
+        )
+        masked_front_line = theater.landmap.inclusion_zone_only.intersection(line)
+        if masked_front_line.is_empty:
+            return theater.nearest_land_pos(initial)
+        nearest_good, _ = nearest_points(
+            masked_front_line, dcs_to_shapely_point(initial)
+        )
+        return initial.new_in_same_map(nearest_good.x, nearest_good.y)

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from game.sim.gameupdateevents import GameUpdateEvents
     from game.sim.simulationresults import SimulationResults
     from game.squadrons import Squadron, Pilot
-    from game.theater import ControlPoint, MissionTarget
+    from game.theater import ControlPoint
     from game.transfers import TransferOrder
     from .flightplans.flightplan import FlightPlan
     from .flighttype import FlightType
@@ -59,8 +59,6 @@ class Flight(SidcDescribable):
             self.roster = roster
         self.divert = divert
         self.flight_type = flight_type
-        # TODO: Replace with FlightPlan.
-        self.targets: List[MissionTarget] = []
         self.loadout = Loadout.default_for(self)
         self.start_type = start_type
         self.use_custom_loadout = False
@@ -81,14 +79,22 @@ class Flight(SidcDescribable):
         # Used for simulating the travel to first contact.
         self.state: FlightState = Uninitialized(self, squadron.settings)
 
-        # Will be replaced with a more appropriate FlightPlan by
-        # FlightPlanBuilder, but an empty flight plan the flight begins with an
-        # empty flight plan.
-        from .flightplans.custom import CustomFlightPlan, CustomLayout
+        # Will be replaced with a more appropriate FlightPlan later, but start with a
+        # cheaply constructed one since adding more flights to the package may affect
+        # the optimal layout.
+        from .flightplans.flightplanbuildertypes import FlightPlanBuilderTypes
 
-        self.flight_plan: FlightPlan[Any] = CustomFlightPlan(
-            self, CustomLayout(custom_waypoints=[])
-        )
+        self._flight_plan_builder = FlightPlanBuilderTypes.for_flight(self)(self)
+
+    @property
+    def flight_plan(self) -> FlightPlan[Any]:
+        return self._flight_plan_builder.get_or_build()
+
+    def degrade_to_custom_flight_plan(self) -> None:
+        from .flightplans.custom import Builder as CustomBuilder
+
+        self._flight_plan_builder = CustomBuilder(self, self.flight_plan.waypoints[1:])
+        self.recreate_flight_plan()
 
     def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
@@ -138,6 +144,10 @@ class Flight(SidcDescribable):
     @property
     def unit_type(self) -> AircraftType:
         return self.squadron.aircraft
+
+    @property
+    def is_helo(self) -> bool:
+        return self.unit_type.dcs_unit_type.helicopter
 
     @property
     def from_cp(self) -> ControlPoint:
@@ -190,14 +200,14 @@ class Flight(SidcDescribable):
     def abort(self) -> None:
         from .flightplans.rtb import RtbFlightPlan
 
-        layout = RtbFlightPlan.builder_type()(self, self.coalition.game.theater).build()
-        self.flight_plan = RtbFlightPlan(self, layout)
+        self._flight_plan_builder = RtbFlightPlan.builder_type()(self)
+        plan = self._flight_plan_builder.get_or_build()
 
         self.set_state(
             Navigating(
                 self,
                 self.squadron.settings,
-                self.flight_plan.abort_index,
+                plan.abort_index,
                 has_aborted=True,
             )
         )
@@ -240,3 +250,6 @@ class Flight(SidcDescribable):
         for pilot in self.roster.pilots:
             if pilot is not None:
                 results.kill_pilot(self, pilot)
+
+    def recreate_flight_plan(self) -> None:
+        self._flight_plan_builder.regenerate()

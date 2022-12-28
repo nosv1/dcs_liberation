@@ -1,28 +1,18 @@
 from __future__ import annotations
 
-import datetime
 import math
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Iterator, List, Optional, TYPE_CHECKING, Tuple
+from datetime import timezone
+from typing import Iterator, List, Optional, TYPE_CHECKING, Tuple
 from uuid import UUID
 
 from dcs.mapping import Point
-from dcs.terrain import (
-    caucasus,
-    marianaislands,
-    nevada,
-    normandy,
-    persiangulf,
-    syria,
-    thechannel,
-)
 from dcs.terrain.terrain import Terrain
 from shapely import geometry, ops
 
+from .daytimemap import DaytimeMap
 from .frontline import FrontLine
 from .iadsnetwork.iadsnetwork import IadsNetwork
-from .landmap import Landmap, load_landmap, poly_contains
+from .landmap import Landmap, poly_contains
 from .seasonalconditions import SeasonalConditions
 from ..utils import Heading
 
@@ -31,30 +21,23 @@ if TYPE_CHECKING:
     from .theatergroundobject import TheaterGroundObject
 
 
-@dataclass
-class ReferencePoint:
-    world_coordinates: Point
-    image_coordinates: Point
-
-
 class ConflictTheater:
-    terrain: Terrain
-
-    overview_image: str
-    landmap: Optional[Landmap]
-    """
-    land_poly = None  # type: Polygon
-    """
-    daytime_map: Dict[str, Tuple[int, int]]
     iads_network: IadsNetwork
 
-    def __init__(self) -> None:
-        self.controlpoints: List[ControlPoint] = []
-        """
-        self.land_poly = geometry.Polygon(self.landmap[0][0])
-        for x in self.landmap[1]:
-            self.land_poly = self.land_poly.difference(geometry.Polygon(x))
-        """
+    def __init__(
+        self,
+        terrain: Terrain,
+        landmap: Landmap | None,
+        time_zone: timezone,
+        seasonal_conditions: SeasonalConditions,
+        daytime_map: DaytimeMap,
+    ) -> None:
+        self.terrain = terrain
+        self.landmap = landmap
+        self.timezone = time_zone
+        self.seasonal_conditions = seasonal_conditions
+        self.daytime_map = daytime_map
+        self.controlpoints: list[ControlPoint] = []
 
     def add_controlpoint(self, point: ControlPoint) -> None:
         self.controlpoints.append(point)
@@ -230,14 +213,6 @@ class ConflictTheater:
                 return cp
         raise KeyError(f"Cannot find ControlPoint named {name}")
 
-    @property
-    def timezone(self) -> datetime.timezone:
-        raise NotImplementedError
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        raise NotImplementedError
-
     def heading_to_conflict_from(self, position: Point) -> Optional[Heading]:
         # Heading for a Group to the enemy.
         # Should be the point between the nearest and the most distant conflict
@@ -259,159 +234,3 @@ class ConflictTheater:
         )
 
         return Heading.from_degrees(position.heading_between_point(conflict_center))
-
-
-class CaucasusTheater(ConflictTheater):
-    terrain = caucasus.Caucasus()
-    overview_image = "caumap.gif"
-
-    landmap = load_landmap(Path("resources/caulandmap.p"))
-    daytime_map = {
-        "dawn": (6, 9),
-        "day": (9, 18),
-        "dusk": (18, 20),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=4))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.caucasus import CONDITIONS
-
-        return CONDITIONS
-
-
-class PersianGulfTheater(ConflictTheater):
-    terrain = persiangulf.PersianGulf()
-    overview_image = "persiangulf.gif"
-    landmap = load_landmap(Path("resources/gulflandmap.p"))
-    daytime_map = {
-        "dawn": (6, 8),
-        "day": (8, 16),
-        "dusk": (16, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=4))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.persiangulf import CONDITIONS
-
-        return CONDITIONS
-
-
-class NevadaTheater(ConflictTheater):
-    terrain = nevada.Nevada()
-    overview_image = "nevada.gif"
-    landmap = load_landmap(Path("resources/nevlandmap.p"))
-    daytime_map = {
-        "dawn": (4, 6),
-        "day": (6, 17),
-        "dusk": (17, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=-8))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.nevada import CONDITIONS
-
-        return CONDITIONS
-
-
-class NormandyTheater(ConflictTheater):
-    terrain = normandy.Normandy()
-    overview_image = "normandy.gif"
-    landmap = load_landmap(Path("resources/normandylandmap.p"))
-    daytime_map = {
-        "dawn": (6, 8),
-        "day": (10, 17),
-        "dusk": (17, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=0))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.normandy import CONDITIONS
-
-        return CONDITIONS
-
-
-class TheChannelTheater(ConflictTheater):
-    terrain = thechannel.TheChannel()
-    overview_image = "thechannel.gif"
-    landmap = load_landmap(Path("resources/channellandmap.p"))
-    daytime_map = {
-        "dawn": (6, 8),
-        "day": (10, 17),
-        "dusk": (17, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=2))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.thechannel import CONDITIONS
-
-        return CONDITIONS
-
-
-class SyriaTheater(ConflictTheater):
-    terrain = syria.Syria()
-    overview_image = "syria.gif"
-    landmap = load_landmap(Path("resources/syrialandmap.p"))
-    daytime_map = {
-        "dawn": (6, 8),
-        "day": (8, 16),
-        "dusk": (16, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=3))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.syria import CONDITIONS
-
-        return CONDITIONS
-
-
-class MarianaIslandsTheater(ConflictTheater):
-    terrain = marianaislands.MarianaIslands()
-    overview_image = "marianaislands.gif"
-
-    landmap = load_landmap(Path("resources/marianaislandslandmap.p"))
-    daytime_map = {
-        "dawn": (6, 8),
-        "day": (8, 16),
-        "dusk": (16, 18),
-        "night": (0, 5),
-    }
-
-    @property
-    def timezone(self) -> datetime.timezone:
-        return datetime.timezone(datetime.timedelta(hours=10))
-
-    @property
-    def seasonal_conditions(self) -> SeasonalConditions:
-        from .seasonalconditions.marianaislands import CONDITIONS
-
-        return CONDITIONS

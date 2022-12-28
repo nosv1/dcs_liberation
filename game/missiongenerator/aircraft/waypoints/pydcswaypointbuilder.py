@@ -10,8 +10,9 @@ from dcs.unitgroup import FlyingGroup
 
 from game.ato import Flight, FlightWaypoint
 from game.ato.flightwaypointtype import FlightWaypointType
-from game.missiongenerator.airsupport import AirSupport
+from game.missiongenerator.missiondata import MissionData
 from game.theater import MissionTarget, TheaterUnit
+from game.unitmap import UnitMap
 
 TARGET_WAYPOINTS = (
     FlightWaypointType.TARGET_GROUP_LOC,
@@ -28,7 +29,8 @@ class PydcsWaypointBuilder:
         flight: Flight,
         mission: Mission,
         elapsed_mission_time: timedelta,
-        air_support: AirSupport,
+        mission_data: MissionData,
+        unit_map: UnitMap,
     ) -> None:
         self.waypoint = waypoint
         self.group = group
@@ -36,7 +38,8 @@ class PydcsWaypointBuilder:
         self.flight = flight
         self.mission = mission
         self.elapsed_mission_time = elapsed_mission_time
-        self.air_support = air_support
+        self.mission_data = mission_data
+        self.unit_map = unit_map
 
     def build(self) -> MovingPoint:
         waypoint = self.group.add_waypoint(

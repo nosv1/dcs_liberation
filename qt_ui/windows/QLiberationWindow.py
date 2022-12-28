@@ -8,6 +8,7 @@ from PySide2.QtGui import QCloseEvent, QIcon
 from PySide2.QtWidgets import (
     QAction,
     QActionGroup,
+    QApplication,
     QDesktopWidget,
     QFileDialog,
     QMainWindow,
@@ -28,11 +29,12 @@ from qt_ui import liberation_install
 from qt_ui.dialogs import Dialog
 from qt_ui.models import GameModel
 from qt_ui.simcontroller import SimController
-from qt_ui.uiconstants import URLS
+from qt_ui.uiflags import UiFlags
 from qt_ui.uncaughtexceptionhandler import UncaughtExceptionHandler
 from qt_ui.widgets.QTopPanel import QTopPanel
 from qt_ui.widgets.ato import QAirTaskingOrderPanel
 from qt_ui.widgets.map.QLiberationMap import QLiberationMap
+from qt_ui.windows.BugReportDialog import BugReportDialog
 from qt_ui.windows.GameUpdateSignal import GameUpdateSignal
 from qt_ui.windows.QDebriefingWindow import QDebriefingWindow
 from qt_ui.windows.basemenu.QBaseMenu2 import QBaseMenu2
@@ -53,7 +55,7 @@ class QLiberationWindow(QMainWindow):
     tgo_info_signal = Signal(TheaterGroundObject)
     control_point_info_signal = Signal(ControlPoint)
 
-    def __init__(self, game: Game | None, dev: bool) -> None:
+    def __init__(self, game: Game | None, ui_flags: UiFlags) -> None:
         super().__init__()
 
         self._uncaught_exception_handler = UncaughtExceptionHandler(self)
@@ -78,14 +80,16 @@ class QLiberationWindow(QMainWindow):
         Dialog.set_game(self.game_model)
         self.ato_panel = QAirTaskingOrderPanel(self.game_model)
         self.info_panel = QInfoPanel(self.game)
-        self.liberation_map = QLiberationMap(self.game_model, dev, self)
+        self.liberation_map = QLiberationMap(
+            self.game_model, ui_flags.dev_ui_webserver, self
+        )
 
         self.setGeometry(300, 100, 270, 100)
         self.updateWindowTitle()
         self.setWindowIcon(QIcon("./resources/icon.png"))
         self.statusBar().showMessage("Ready")
 
-        self.initUi()
+        self.initUi(ui_flags)
         self.initActions()
         self.initToolbar()
         self.initMenuBar()
@@ -115,7 +119,7 @@ class QLiberationWindow(QMainWindow):
         else:
             self.onGameGenerated(self.game)
 
-    def initUi(self):
+    def initUi(self, ui_flags: UiFlags) -> None:
         hbox = QSplitter(Qt.Horizontal)
         vbox = QSplitter(Qt.Vertical)
         hbox.addWidget(self.ato_panel)
@@ -130,7 +134,7 @@ class QLiberationWindow(QMainWindow):
 
         vbox = QVBoxLayout()
         vbox.setMargin(0)
-        vbox.addWidget(QTopPanel(self.game_model, self.sim_controller))
+        vbox.addWidget(QTopPanel(self.game_model, self.sim_controller, ui_flags))
         vbox.addWidget(hbox)
 
         central_widget = QWidget()
@@ -192,6 +196,10 @@ class QLiberationWindow(QMainWindow):
             lambda: webbrowser.open_new_tab("https://shdwp.github.io/ukraine/")
         )
 
+        self.bug_report_action = QAction("Report an &issue", self)
+        self.bug_report_action.setIcon(CONST.ICONS["Bug"])
+        self.bug_report_action.triggered.connect(self.show_bug_report_dialog)
+
         self.openLogsAction = QAction("Show &logs", self)
         self.openLogsAction.triggered.connect(self.showLogsDialog)
 
@@ -232,6 +240,7 @@ class QLiberationWindow(QMainWindow):
         self.links_bar = self.addToolBar("Links")
         self.links_bar.addAction(self.openDiscordAction)
         self.links_bar.addAction(self.openGithubAction)
+        self.links_bar.addAction(self.bug_report_action)
         self.links_bar.addAction(self.ukraineAction)
 
         self.actions_bar = self.addToolBar("Actions")
@@ -267,14 +276,18 @@ class QLiberationWindow(QMainWindow):
             ),
         )
         help_menu.addAction(
-            "&Online Manual", lambda: webbrowser.open_new_tab(URLS["Manual"])
+            "&Online Manual",
+            lambda: webbrowser.open_new_tab(
+                "https://github.com/dcs-liberation/dcs_liberation/wiki"
+            ),
         )
         help_menu.addAction(
-            "&ED Forum Thread", lambda: webbrowser.open_new_tab(URLS["ForumThread"])
+            "&ED Forum Thread",
+            lambda: webbrowser.open_new_tab(
+                "https://forums.eagle.ru/showthread.php?t=214834"
+            ),
         )
-        help_menu.addAction(
-            "Report an &issue", lambda: webbrowser.open_new_tab(URLS["Issues"])
-        )
+        help_menu.addAction(self.bug_report_action)
         help_menu.addAction(self.openLogsAction)
 
         help_menu.addSeparator()
@@ -390,6 +403,54 @@ class QLiberationWindow(QMainWindow):
             self.enable_game_actions(self.game is not None)
 
     def showAboutDialog(self):
+        contributors = [
+            "shdwp",
+            "Khopa",
+            "ColonelPanic",
+            "RndName",
+            "Roach",
+            "Malakhit",
+            "Wrycu",
+            "calvinmorrow",
+            "JohanAberg",
+            "Deus",
+            "SiKruger",
+            "Mustang-25",
+            "bgreman",
+            "magwo",
+            "SnappyComebacks",
+            "kavinsky",
+            "Schneefl0cke",
+            "pbzweihander",
+            "Raskil",
+            "nosv1",
+            "jake-lewis",
+            "teamMOYA",
+            "benedikt-wegmann",
+            "movq",
+            "bbirchnz",
+            "eddiwood",
+            "root0fall",
+            "calvinmorrow",
+            "UKayeF",
+            "Captain Cody",
+            "steveveepee",
+            "pedromagueija",
+            "parithon",
+            "TheCandianVendingMachine",
+            "bwRavencl",
+            "davidp57",
+            "Plob",
+            "Hawkmoon",
+            "alrik11es",
+            "Starfire13",
+            "Hornet2041/Lion",
+            "SgtFuzzle17",
+            "Doc_of_Mur",
+            "NickJZX",
+            "Sith1144",
+            "Raffson",
+        ]
         text = (
             "<h3>DCS Liberation "
             + VERSION
@@ -398,13 +459,17 @@ class QLiberationWindow(QMainWindow):
             + "<h4>Authors</h4>"
             + "<p>DCS Liberation was originally developed by <b>shdwp</b>, DCS Liberation 2.0 is a partial rewrite based on this work by <b>Khopa</b>."
             "<h4>Contributors</h4>"
-            + "shdwp, Khopa, ColonelPanic, Roach, Malakhit, Wrycu, calvinmorrow, JohanAberg, Deus, SiKruger, Mustang-25, root0fall, Captain Cody, steveveepee, pedromagueija, parithon, bwRavencl, davidp57, Plob, Hawkmoon"
+            + ", ".join(contributors)
             + "<h4>Special Thanks  :</h4>"
             "<b>rp-</b> <i>for the pydcs framework</i><br/>"
             "<b>Grimes (mrSkortch)</b> & <b>Speed</b> <i>for the MIST framework</i><br/>"
             "<b>Ciribob </b> <i>for the JTACAutoLase.lua script</i><br/>"
             "<b>Walder </b> <i>for the Skynet-IADS script</i><br/>"
             "<b>Anubis Yinepu </b> <i>for the Hercules Cargo script</i><br/>"
+            '<a href="https://www.flaticon.com/free-icons/bug" title="bug icons" style="color: #ffffff">Bug icons created by Freepik - Flaticon</a><br />'
+            'Contains information from <a href="https://osmdata.openstreetmap.de/" style="color: #ffffff">OpenStreetMap © OpenStreetMap contributors</a>, which is made available here under the <a href="https://opendatacommons.org/licenses/odbl/1-0/" style="color: #ffffff">Open Database License (ODbL)</a>.<br />'
+            '<a href="https://download.geofabrik.de/index.html/" style="color: #ffffff">OpenStreetMap Data Extracts from Geofabrik</a><br />'
+            '<a href="https://www.earthdata.nasa.gov/" style="color: #ffffff">NASA EarthData</a><br />'
             + "<h4>Splash Screen  :</h4>"
             + "Artwork by Andriy Dankovych (CC BY-SA) [https://www.facebook.com/AndriyDankovych]"
         )
@@ -433,6 +498,10 @@ class QLiberationWindow(QMainWindow):
 
     def import_templates(self):
         LAYOUTS.import_templates()
+
+    def show_bug_report_dialog(self) -> None:
+        self.dialog = BugReportDialog(self)
+        self.dialog.show()
 
     def showLogsDialog(self):
         self.dialog = QLogsWindow()
@@ -474,5 +543,7 @@ class QLiberationWindow(QMainWindow):
             self._save_window_geometry()
             super().closeEvent(event)
             self.dialog = None
+            for window in QApplication.topLevelWidgets():
+                window.close()
         else:
             event.ignore()

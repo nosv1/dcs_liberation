@@ -15,8 +15,43 @@ if TYPE_CHECKING:
     from ..flightwaypoint import FlightWaypoint
 
 
-class Builder(IBuilder):
-    def build(self) -> FerryLayout:
+@dataclass(frozen=True)
+class FerryLayout(StandardLayout):
+    nav_to_destination: list[FlightWaypoint]
+
+    def iter_waypoints(self) -> Iterator[FlightWaypoint]:
+        yield self.departure
+        yield from self.nav_to_destination
+        yield self.arrival
+        if self.divert is not None:
+            yield self.divert
+        yield self.bullseye
+
+
+class FerryFlightPlan(StandardFlightPlan[FerryLayout]):
+    @staticmethod
+    def builder_type() -> Type[Builder]:
+        return Builder
+
+    @property
+    def tot_waypoint(self) -> FlightWaypoint:
+        return self.layout.arrival
+
+    def tot_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
+        # TOT planning isn't really useful for ferries. They're behind the front
+        # lines so no need to wait for escorts or for other missions to complete.
+        return None
+
+    def depart_time_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
+        return None
+
+    @property
+    def mission_departure_time(self) -> timedelta:
+        return self.package.time_over_target
+
+
+class Builder(IBuilder[FerryFlightPlan, FerryLayout]):
+    def layout(self) -> FerryLayout:
         if self.flight.departure == self.flight.arrival:
             raise PlanningError(
                 f"Cannot plan ferry self.flight: departure and arrival are both "
@@ -44,37 +79,5 @@ class Builder(IBuilder):
             bullseye=builder.bullseye(),
         )
 
-
-@dataclass(frozen=True)
-class FerryLayout(StandardLayout):
-    nav_to_destination: list[FlightWaypoint]
-
-    def iter_waypoints(self) -> Iterator[FlightWaypoint]:
-        yield self.departure
-        yield from self.nav_to_destination
-        yield self.arrival
-        if self.divert is not None:
-            yield self.divert
-        yield self.bullseye
-
-
-class FerryFlightPlan(StandardFlightPlan[FerryLayout]):
-    @staticmethod
-    def builder_type() -> Type[Builder]:
-        return Builder
-
-    @property
-    def tot_waypoint(self) -> FlightWaypoint | None:
-        return self.layout.arrival
-
-    def tot_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
-        # TOT planning isn't really useful for ferries. They're behind the front
-        # lines so no need to wait for escorts or for other missions to complete.
-        return None
-
-    def depart_time_for_waypoint(self, waypoint: FlightWaypoint) -> timedelta | None:
-        return None
-
-    @property
-    def mission_departure_time(self) -> timedelta:
-        return self.package.time_over_target
+    def build(self) -> FerryFlightPlan:
+        return FerryFlightPlan(self.flight, self.layout())

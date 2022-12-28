@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import math
 import random
 from typing import List, Optional, TYPE_CHECKING, Tuple
@@ -43,9 +42,9 @@ from game.radio.radios import RadioRegistry
 from game.theater.controlpoint import ControlPoint
 from game.unitmap import UnitMap
 from game.utils import Heading
-from .airsupport import AirSupport, JtacInfo
 from .frontlineconflictdescription import FrontLineConflictDescription
 from .lasercoderegistry import LaserCodeRegistry
+from .missiondata import JtacInfo, MissionData
 
 if TYPE_CHECKING:
     from game import Game
@@ -80,7 +79,7 @@ class FlotGenerator:
         enemy_stance: CombatStance,
         unit_map: UnitMap,
         radio_registry: RadioRegistry,
-        air_support: AirSupport,
+        mission_data: MissionData,
         laser_code_registry: LaserCodeRegistry,
     ) -> None:
         self.mission = mission
@@ -92,7 +91,7 @@ class FlotGenerator:
         self.game = game
         self.unit_map = unit_map
         self.radio_registry = radio_registry
-        self.air_support = air_support
+        self.mission_data = mission_data
         self.laser_code_registry = laser_code_registry
 
     def generate(self) -> None:
@@ -100,18 +99,14 @@ class FlotGenerator:
             self.conflict.front_line, self.game.theater
         )
 
-        frontline_vector = FrontLineConflictDescription.frontline_vector(
-            self.conflict.front_line, self.game.theater
-        )
-
         # Create player groups at random position
         player_groups = self._generate_groups(
-            self.player_planned_combat_groups, frontline_vector, True
+            self.player_planned_combat_groups, is_player=True
         )
 
         # Create enemy groups at random position
         enemy_groups = self._generate_groups(
-            self.enemy_planned_combat_groups, frontline_vector, False
+            self.enemy_planned_combat_groups, is_player=False
         )
 
         # TODO: Differentiate AirConflict and GroundConflict classes.
@@ -146,7 +141,7 @@ class FlotGenerator:
             # If the option fc3LaserCode is enabled, force all JTAC
             # laser codes to 1113 to allow lasing for Su-25 Frogfoots and A-10A Warthogs.
             # Otherwise use 1688 for the first JTAC, 1687 for the second etc.
-            if self.game.settings.plugins["plugins.jtacautolase.fc3LaserCode"]:
+            if self.game.settings.plugins["plugins.ctld.fc3LaserCode"]:
                 code = 1113
             else:
                 code = self.laser_code_registry.get_next_laser_code()
@@ -166,7 +161,7 @@ class FlotGenerator:
             )
             jtac.points[0].tasks.append(
                 FAC(
-                    callsign=len(self.air_support.jtacs) + 1,
+                    callsign=len(self.mission_data.jtacs) + 1,
                     frequency=int(freq.mhz),
                     modulation=freq.modulation,
                 )
@@ -181,13 +176,13 @@ class FlotGenerator:
             )
             # Note: Will need to change if we ever add ground based JTAC.
             callsign = callsign_for_support_unit(jtac)
-            self.air_support.jtacs.append(
+            self.mission_data.jtacs.append(
                 JtacInfo(
-                    jtac.name,
-                    jtac.name,
-                    callsign,
-                    frontline,
-                    str(code),
+                    group_name=jtac.name,
+                    unit_name=jtac.units[0].name,
+                    callsign=callsign,
+                    region=frontline,
+                    code=str(code),
                     blue=True,
                     freq=freq,
                 )
@@ -207,13 +202,6 @@ class FlotGenerator:
             forward_heading,
             self.conflict.theater,
         )
-        if not infantry_position:
-            logging.warning("Could not find infantry position")
-            return
-        if side == self.conflict.attackers_country:
-            cp = self.conflict.blue_cp
-        else:
-            cp = self.conflict.red_cp
 
         faction = self.game.faction_for(is_player)
 
@@ -698,33 +686,33 @@ class FlotGenerator:
         return rg
 
     def get_valid_position_for_group(
-        self,
-        conflict_position: Point,
-        combat_width: int,
-        distance_from_frontline: int,
-        heading: Heading,
-        spawn_heading: Heading,
-    ) -> Optional[Point]:
-        shifted = conflict_position.point_from_heading(
-            heading.degrees, random.randint(0, combat_width)
+        self, distance_from_frontline: int, spawn_heading: Heading
+    ) -> Point:
+        assert self.conflict.heading is not None
+        assert self.conflict.size is not None
+        shifted = self.conflict.position.point_from_heading(
+            self.conflict.heading.degrees,
+            random.randint(0, self.conflict.size),
         )
         desired_point = shifted.point_from_heading(
             spawn_heading.degrees, distance_from_frontline
         )
         return FrontLineConflictDescription.find_ground_position(
-            desired_point, combat_width, heading, self.conflict.theater
+            desired_point,
+            self.conflict.size,
+            self.conflict.heading,
+            self.conflict.theater,
         )
 
     def _generate_groups(
-        self,
-        groups: list[CombatGroup],
-        frontline_vector: Tuple[Point, Heading, int],
-        is_player: bool,
+        self, groups: list[CombatGroup], is_player: bool
     ) -> List[Tuple[VehicleGroup, CombatGroup]]:
         """Finds valid positions for planned groups and generates a pydcs group for them"""
         positioned_groups = []
-        position, heading, combat_width = frontline_vector
-        spawn_heading = heading.left if is_player else heading.right
+        assert self.conflict.heading is not None
+        spawn_heading = (
+            self.conflict.heading.left if is_player else self.conflict.heading.right
+        )
         country = self.game.coalition_for(is_player).country_name
         for group in groups:
             if group.role == CombatGroupRole.ARTILLERY:
@@ -738,50 +726,43 @@ class FlotGenerator:
                 )
 
             final_position = self.get_valid_position_for_group(
-                position, combat_width, distance_from_frontline, heading, spawn_heading
+                distance_from_frontline, spawn_heading
             )
 
-            if final_position is not None:
-                g = self._generate_group(
-                    self.mission.country(country),
-                    group.unit_type,
-                    group.size,
-                    final_position,
-                    heading=spawn_heading.opposite,
-                )
-                if is_player:
-                    g.set_skill(Skill(self.game.settings.player_skill))
-                else:
-                    g.set_skill(Skill(self.game.settings.enemy_vehicle_skill))
-                positioned_groups.append((g, group))
-
-                if group.role in [CombatGroupRole.APC, CombatGroupRole.IFV]:
-                    self.gen_infantry_group_for_group(
-                        g,
-                        is_player,
-                        self.mission.country(country),
-                        spawn_heading.opposite,
-                    )
+            g = self._generate_group(
+                is_player,
+                self.mission.country(country),
+                group.unit_type,
+                group.size,
+                final_position,
+                heading=spawn_heading.opposite,
+            )
+            if is_player:
+                g.set_skill(Skill(self.game.settings.player_skill))
             else:
-                logging.warning(f"Unable to get valid position for {group}")
+                g.set_skill(Skill(self.game.settings.enemy_vehicle_skill))
+            positioned_groups.append((g, group))
+
+            if group.role in [CombatGroupRole.APC, CombatGroupRole.IFV]:
+                self.gen_infantry_group_for_group(
+                    g,
+                    is_player,
+                    self.mission.country(country),
+                    spawn_heading.opposite,
+                )
 
         return positioned_groups
 
     def _generate_group(
         self,
+        player: bool,
         side: Country,
         unit_type: GroundUnitType,
         count: int,
         at: Point,
-        move_formation: PointAction = PointAction.OffRoad,
-        heading: Heading = Heading.from_degrees(0),
+        heading: Heading,
     ) -> VehicleGroup:
-
-        if side == self.conflict.attackers_country:
-            cp = self.conflict.blue_cp
-        else:
-            cp = self.conflict.red_cp
-
+        cp = self.conflict.front_line.control_point_friendly_to(player)
         group = self.mission.vehicle_group(
             side,
             namegen.next_unit_name(side, unit_type),
@@ -789,7 +770,6 @@ class FlotGenerator:
             position=at,
             group_size=count,
             heading=heading.degrees,
-            move_formation=move_formation,
         )
 
         self.unit_map.add_front_line_units(group, cp, unit_type)
