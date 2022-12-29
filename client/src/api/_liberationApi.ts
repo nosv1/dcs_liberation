@@ -362,6 +362,10 @@ export type ControlPoint = {
   mobile: boolean;
   destination?: LatLng;
   sidc: string;
+  aircraft_count: number;
+  ground_units_count: number;
+  ground_units_deployable_count: number;
+  front_line_stances: string[];
 };
 export type ValidationError = {
   loc: (string | number)[];

@@ -102,7 +102,13 @@ function PrimaryMarker(props: PrimaryMarkerProps) {
             true
           )
         : ReactDOMServer.renderToString(
-            <LocationTooltipText name={props.controlPoint.name} />
+            <LocationTooltipText 
+              name={props.controlPoint.name}
+              aircraft_present={props.controlPoint.aircraft_count}
+              ground_units={props.controlPoint.ground_units_count}
+              max_deployable_ground_units={props.controlPoint.ground_units_deployable_count}
+              front_line_stances={props.controlPoint.front_line_stances}
+            />
           )
     );
   });
