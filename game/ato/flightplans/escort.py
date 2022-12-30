@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Type
 
 from .formationattack import (
@@ -8,12 +9,18 @@ from .formationattack import (
     FormationAttackLayout,
 )
 from .waypointbuilder import WaypointBuilder
+from ..flighttype import FlightType
 
 
 class EscortFlightPlan(FormationAttackFlightPlan):
     @staticmethod
     def builder_type() -> Type[Builder]:
         return Builder
+
+    @property
+    def lead_time(self) -> timedelta:
+        if self.flight.flight_type == FlightType.SEAD_ESCORT:
+            return timedelta(minutes=6)
 
 
 class Builder(FormationAttackBuilder[EscortFlightPlan, FormationAttackLayout]):
