@@ -20,5 +20,4 @@ class QGroundForcesStrategySelector(QComboBox):
         self.currentTextChanged.connect(self.on_change)
 
     def on_change(self):
-        print(self.currentData())
         self.cp.stances[self.enemy_cp.id] = self.currentData()
