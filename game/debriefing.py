@@ -275,7 +275,7 @@ class Debriefing:
             losses_by_type[loss.name] = loss.status.name
         return losses_by_type
 
-    def dead_aircraft(self) -> AirLosses:
+    def dead_aircraft(self) -> tuple[AirLosses, AirLosses]:
         player_losses = []
         enemy_losses = []
         player_bafoons = []

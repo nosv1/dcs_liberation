@@ -22,35 +22,55 @@ class LossGrid(QGridLayout):
     def __init__(self, debriefing: Debriefing, player: bool) -> None:
         super().__init__()
 
-        self.add_loss_rows(debriefing.air_losses.by_type(player), lambda u: u.name)
         self.add_loss_rows(
-            debriefing.front_line_losses_by_type(player), lambda u: str(u)
+            debriefing.air_losses.by_type(player), lambda u: f"Aircraft: ({u})"
         )
         self.add_loss_rows(
-            debriefing.convoy_losses_by_type(player), lambda u: f"{u} from convoy"
+            debriefing.front_line_losses_by_type(player), lambda u: f"Front Line: ({u})"
         )
         self.add_loss_rows(
-            debriefing.cargo_ship_losses_by_type(player),
-            lambda u: f"{u} from cargo ship",
+            debriefing.convoy_losses_by_type(player), lambda u: f"Convoy: ({u})"
         )
         self.add_loss_rows(
-            debriefing.airlift_losses_by_type(player), lambda u: f"{u} from airlift"
+            debriefing.cargo_ship_losses_by_type(player), lambda u: f"Cargo Ship: ({u})"
         )
-        self.add_loss_rows(debriefing.ground_object_losses_by_type(player), lambda u: u)
-        self.add_loss_rows(debriefing.scenery_losses_by_type(player), lambda u: u)
+        self.add_loss_rows(
+            debriefing.airlift_losses_by_type(player), lambda u: f"Airlift: ({u})"
+        )
+        self.add_loss_rows(
+            debriefing.ground_object_losses_by_type(player),
+            lambda u: f"Objective Areas: ({u})",
+        )
+        self.add_loss_rows(
+            debriefing.scenery_losses_by_type(player), lambda u: f"Scenery: ({u})"
+        )
+        self.add_loss_rows(
+            debriefing.air_fields_by_type(player), lambda u: f"Airfields: ({u})"
+        )
+        self.add_loss_rows(
+            debriefing.bafoons.by_type(player), lambda u: f"Bafoons: ({u})"
+        )
 
         # TODO: Display dead ground object units and runways.
 
-    def add_loss_rows(self, losses: Dict[T, int], make_name: Callable[[T], str]):
+    def add_loss_rows(self, losses: Dict[T, int], header: Callable[[T], str]):
+
+        if losses:
+            total_losses_of_type = sum(losses.values())
+            self.addWidget(
+                QLabel(f"<b>{header(total_losses_of_type)}</b>"),
+                self.rowCount(),
+                0,
+            )
+
         for unit_type, count in losses.items():
             row = self.rowCount()
-            try:
-                name = make_name(unit_type)
-            except AttributeError:
-                logging.exception(f"Could not make unit name for {unit_type}")
-                name = unit_type.id
-            self.addWidget(QLabel(name), row, 0)
+            self.addWidget(QLabel(f"    {unit_type}"), row, 0)
             self.addWidget(QLabel(str(count)), row, 1)
+
+        # add spacer row
+        if losses:
+            self.addWidget(QLabel(""), self.rowCount(), 0)
 
 
 class ScrollingCasualtyReportContainer(QGroupBox):
@@ -73,7 +93,7 @@ class QDebriefingWindow(QDialog):
 
         self.setModal(True)
         self.setWindowTitle("Debriefing")
-        self.setMinimumSize(300, 200)
+        self.setMinimumSize(600, 400)
         self.setWindowIcon(QIcon("./resources/icon.png"))
 
         layout = QVBoxLayout()
