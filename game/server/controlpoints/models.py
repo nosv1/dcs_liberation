@@ -33,13 +33,15 @@ class ControlPointJs(BaseModel):
         destination = None
         if control_point.target_position is not None:
             destination = control_point.target_position.latlng()
-        
+
         front_line_stances: list[str] = []
         for cp in control_point.connected_points:
             for cp_id, stance in control_point.stances.items():
                 if cp_id != cp.id or cp.coalition == control_point.coalition:
                     continue
-                front_line_stances.append(f"{cp.name}: {stance.name if control_point.coalition.player else 'Unknown'}")
+                front_line_stances.append(
+                    f"{cp.name}: {stance.name if control_point.coalition.player else 'Unknown'}"
+                )
 
         return ControlPointJs(
             id=control_point.id,
