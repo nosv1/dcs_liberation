@@ -40,7 +40,7 @@ class SweepLayout(LoiterLayout):
 class SweepFlightPlan(LoiterFlightPlan):
     @property
     def lead_time(self) -> timedelta:
-        return timedelta(minutes=5)
+        return timedelta(minutes=3)
 
     @staticmethod
     def builder_type() -> Type[Builder]:

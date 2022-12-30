@@ -282,7 +282,7 @@ class FlightPlan(ABC, Generic[LayoutT]):
     def estimate_startup(self) -> timedelta:
         if self.flight.start_type is StartType.COLD:
             if self.flight.client_count:
-                return timedelta(minutes=10)
+                return timedelta(minutes=6)
             else:
                 # The AI doesn't seem to have a real startup procedure.
                 return timedelta(minutes=2)

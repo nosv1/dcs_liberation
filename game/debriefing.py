@@ -115,6 +115,7 @@ class StateData:
     def from_json(cls, data: Dict[str, Any]) -> StateData:
         return cls(
             mission_ended=data["mission_ended"],
+            damaged_objects=data["damaged_objects"],
             killed_aircraft=data["killed_aircrafts"],
             # Airfields emit a new "dead" event every time a bomb is dropped on
             # them when they've already dead. Dedup.
