@@ -21,12 +21,14 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
         if not self.target_area_preconditions_met(state, ignore_iads=True):
             return False
 
-        if state.threatening_air_defenses:
+        try:
+            # is air defense
             target_priority: float = 1 - (
                 state.threatening_air_defenses.index(self.target)
                 / len(state.threatening_air_defenses)
             )
-        else:
+        except ValueError:
+            # is detector
             target_priority: float = (
                 1
                 - (
