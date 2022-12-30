@@ -31,7 +31,7 @@ function write_state()
 
     local fp = io.open(_debriefing_file_location, 'w')
     local game_state = {
-        ["damaged_aircrafts"] = damaged_aircrafts,
+        ["damaged_objects"] = damaged_objects,
         ["killed_aircrafts"] = killed_aircrafts,
         ["killed_ground_units"] = killed_ground_units,
         ["base_capture_events"] = base_capture_events,
