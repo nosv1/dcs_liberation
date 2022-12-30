@@ -18,5 +18,5 @@ class PlanRefueling(PackagePlanningTask[MissionTarget]):
     def apply_effects(self, state: TheaterState) -> None:
         state.refueling_targets.remove(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.REFUELING, 1)

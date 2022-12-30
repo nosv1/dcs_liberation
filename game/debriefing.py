@@ -95,6 +95,9 @@ class StateData:
     #: True if the mission ended. If False, the mission exited abnormally.
     mission_ended: bool
 
+    #: Names of objects that were damaged during the mission
+    damaged_objects: List[str]
+
     #: Names of aircraft units that were killed during the mission.
     killed_aircraft: List[str]
 
@@ -135,7 +138,7 @@ class Debriefing:
         self.player_country = game.blue.country_name
         self.enemy_country = game.red.country_name
 
-        self.air_losses = self.dead_aircraft()
+        self.air_losses, self.bafoons = self.dead_aircraft()
         self.ground_losses = self.dead_ground_units()
         self.base_captures = self.base_capture_events()
 
@@ -246,19 +249,59 @@ class Debriefing:
             losses_by_type[loss.trigger_zone.name] += 1
         return losses_by_type
 
+    def ground_objects_by_type(self, player: bool) -> Dict[str, int]:
+        losses_by_type: Dict[str, int] = defaultdict(int)
+        if player:
+            losses = self.ground_losses.player_ground_objects
+        else:
+            losses = self.ground_losses.enemy_ground_objects
+        for loss in losses:
+            if loss.ground_object.control_point.captured != player:
+                continue
+
+            losses_by_type[loss.ground_object.dcs_identifier] += 1
+        return losses_by_type
+
+    def air_fields_by_type(self, player: bool) -> Dict[str, int]:
+        losses_by_type: Dict[str, int] = defaultdict(int)
+        if player:
+            losses = self.ground_losses.player_airfields
+        else:
+            losses = self.ground_losses.enemy_airfields
+        for loss in losses:
+            if not loss.is_friendly_to(player):
+                continue
+
+            losses_by_type[loss.name] = loss.status.name
+        return losses_by_type
+
     def dead_aircraft(self) -> AirLosses:
         player_losses = []
         enemy_losses = []
+        player_bafoons = []
+        enemy_bafoons = []
         for unit_name in self.state_data.killed_aircraft:
             aircraft = self.unit_map.flight(unit_name)
             if aircraft is None:
                 logging.error(f"Could not find Flight matching {unit_name}")
                 continue
+            if unit_name not in self.state_data.damaged_objects:
+                logging.debug(
+                    f"{unit_name} was not damaged and, therefore, it is not counted as destroyed..."
+                )
+                if aircraft.flight.departure.captured:
+                    player_bafoons.append(aircraft)
+                else:
+                    enemy_bafoons.append(aircraft)
+                continue
             if aircraft.flight.departure.captured:
                 player_losses.append(aircraft)
             else:
                 enemy_losses.append(aircraft)
-        return AirLosses(player_losses, enemy_losses)
+        return (
+            AirLosses(player_losses, enemy_losses),
+            AirLosses(player_bafoons, enemy_bafoons),
+        )
 
     def dead_ground_units(self) -> GroundLosses:
         losses = GroundLosses()

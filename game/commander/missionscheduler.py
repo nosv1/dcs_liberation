@@ -34,28 +34,43 @@ class MissionScheduler:
             FlightType.BARCAP,
             FlightType.TARCAP,
         }
+        theater_support_types = {
+            FlightType.AEWC,
+            FlightType.REFUELING,
+        }
 
         previous_cap_end_time: Dict[MissionTarget, timedelta] = defaultdict(timedelta)
-        non_dca_packages = [
-            p for p in self.coalition.ato.packages if p.primary_task not in dca_types
+        ground_attack_packages = [
+            p
+            for p in self.coalition.ato.packages
+            if p.primary_task not in set(list(dca_types) + list(theater_support_types))
         ]
 
         start_time = start_time_generator(
-            count=len(non_dca_packages),
-            earliest=5 * 60,
+            count=len(ground_attack_packages),
+            earliest=int(timedelta(minutes=2).total_seconds()),  # earliest >= margin
             latest=int(self.desired_mission_length.total_seconds()),
-            margin=5 * 60,
+            margin=int(timedelta(minutes=2).total_seconds()),  # margin <= earliest
         )
         for package in self.coalition.ato.packages:
             tot = TotEstimator(package).earliest_tot()
+            package.time_over_target = tot
+
+        self.coalition.ato.packages.sort(key=lambda p: p.time_over_target, reverse=True)
+
+        for package in self.coalition.ato.packages:
             if package.primary_task in dca_types:
                 previous_end_time = previous_cap_end_time[package.target]
-                if tot > previous_end_time:
-                    # Can't get there exactly on time, so get there ASAP. This
-                    # will typically only happen for the first CAP at each
-                    # target.
-                    package.time_over_target = tot
-                else:
+                if package.time_over_target < previous_end_time:
+                    # below was used before we were sorting the tots. we were calculating
+                    # the tots in the order of the packages being created
+                    # if tot > previous_end_time:
+                    #     # Can't get there exactly on time, so get there ASAP. This
+                    #     # will typically only happen for the first CAP at each
+                    #     # target.
+                    #     package.time_over_target = tot
+                    # else:
+                    # end old code
                     package.time_over_target = previous_end_time
 
                 departure_time = package.mission_departure_time
@@ -64,6 +79,8 @@ class MissionScheduler:
                     logging.error(f"Could not determine mission end time for {package}")
                     continue
                 previous_cap_end_time[package.target] = departure_time
+            elif package.primary_task in theater_support_types:
+                pass
             elif package.auto_asap:
                 package.set_tot_asap()
             else:
@@ -73,4 +90,4 @@ class MissionScheduler:
                 # airfields to hit grounded aircraft, since they're more likely
                 # to be present. Runway and air started aircraft will be
                 # delayed until their takeoff time by AirConflictGenerator.
-                package.time_over_target = next(start_time) + tot
+                package.time_over_target += next(start_time)

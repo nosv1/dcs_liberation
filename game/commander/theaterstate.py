@@ -12,6 +12,7 @@ from game.commander.objectivefinder import ObjectiveFinder
 from game.db import GameDb
 from game.ground_forces.combat_stance import CombatStance
 from game.htn import WorldState
+from game.models.game_stats import GameTurnMetadata
 from game.profiling import MultiEventTracer
 from game.settings import Settings
 from game.theater import ConflictTheater, ControlPoint, FrontLine, MissionTarget
@@ -45,6 +46,8 @@ class TheaterState(WorldState["TheaterState"]):
     context: PersistentContext
     barcaps_needed: dict[ControlPoint, int]
     active_front_lines: list[FrontLine]
+    front_line_cas_needed: dict[FrontLine, int]
+    front_line_tarcaps_needed: dict[FrontLine, int]
     front_line_stances: dict[FrontLine, Optional[CombatStance]]
     vulnerable_front_lines: list[FrontLine]
     aewc_targets: list[MissionTarget]
@@ -109,6 +112,8 @@ class TheaterState(WorldState["TheaterState"]):
             context=self.context,
             barcaps_needed=dict(self.barcaps_needed),
             active_front_lines=list(self.active_front_lines),
+            front_line_cas_needed=dict(self.front_line_cas_needed),
+            front_line_tarcaps_needed=dict(self.front_line_tarcaps_needed),
             front_line_stances=dict(self.front_line_stances),
             vulnerable_front_lines=list(self.vulnerable_front_lines),
             aewc_targets=list(self.aewc_targets),
@@ -135,6 +140,42 @@ class TheaterState(WorldState["TheaterState"]):
             detecting_air_defenses=self.detecting_air_defenses,
         )
 
+    def get_air_dominance(self) -> float:
+        """
+        Returns the percentage of total aircraft that are allied aircraft.
+        """
+        data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
+            -1
+        ]
+        try:
+            allied_percentage: float = data.allied_units.aircraft_count / (
+                data.allied_units.aircraft_count + data.enemy_units.aircraft_count
+            )
+            enemy_percentage: float = 1 - allied_percentage
+            return (
+                allied_percentage if self.context.coalition.player else enemy_percentage
+            )
+        except ZeroDivisionError:
+            return 0.5
+
+    def get_ground_dominance(self) -> float:
+        """
+        Returns the percentage of total ground units that are allied ground units.
+        """
+        data: GameTurnMetadata = self.context.coalition.game.game_stats.data_per_turn[
+            -1
+        ]
+        try:
+            allied_percentage: float = data.allied_units.vehicles_count / (
+                data.allied_units.vehicles_count + data.enemy_units.vehicles_count
+            )
+            enemy_percentage: float = 1 - allied_percentage
+            return (
+                allied_percentage if self.context.coalition.player else enemy_percentage
+            )
+        except ZeroDivisionError:
+            return 0.5
+
     @classmethod
     def from_game(
         cls, game: Game, player: bool, tracer: MultiEventTracer
@@ -153,12 +194,51 @@ class TheaterState(WorldState["TheaterState"]):
         barcap_duration = coalition.doctrine.cap_duration.total_seconds()
         barcap_rounds = math.ceil(mission_duration / barcap_duration)
 
+        # Plan front line cas and tarcaps based on the difference of enemy cp vs friendly cp
+        # where we assume 1 flight of 2 sorties can take out >= 8 ground targets
+        # high enemy low friendly, more cas
+        # high friendly low enemy, more tarcaps
+        front_lines = list(finder.front_lines())
+        front_line_cas_needed: dict[FrontLine, int] = {}
+        front_line_tarcaps_needed: dict[FrontLine, int] = {}
+
+        ground_targets_per_flight = 8
+        for front_line in front_lines:
+            enemy_cp = front_line.control_point_friendly_to(player=not player)
+            friendly_cp = front_line.control_point_friendly_to(player=player)
+            ground_difference = enemy_cp.base.total_armor - friendly_cp.base.total_armor
+
+            # as long as there are targets, a cas is needed
+            if enemy_cp.base.total_armor > 0:
+                # ground difference of 1-8 = 1 cas needed, 9-16 = 2, etc.
+                front_line_cas_needed[front_line] = math.ceil(
+                    max(ground_difference, 1) / ground_targets_per_flight
+                )
+
+            # as long as there are friendly units and more friendly than enemy, a tarcap is needed
+            if friendly_cp.base.total_armor > 0 and ground_difference < 0:
+                # ground difference of 9-16 = 1 tarcap needed, 17-24 = 2, etc.
+                front_line_tarcaps_needed[front_line] = math.ceil(
+                    (abs(ground_difference) - ground_targets_per_flight)
+                    / ground_targets_per_flight
+                )
+
+        # put the fight where the fight is
+        front_line_cas_needed = dict(
+            sorted(front_line_cas_needed.items(), key=lambda x: x[1], reverse=True)
+        )
+        front_line_tarcaps_needed = dict(
+            sorted(front_line_tarcaps_needed.items(), key=lambda x: x[1], reverse=True)
+        )
+
         return TheaterState(
             context=context,
             barcaps_needed={
                 cp: barcap_rounds for cp in finder.vulnerable_control_points()
             },
             active_front_lines=list(finder.front_lines()),
+            front_line_cas_needed=front_line_cas_needed,
+            front_line_tarcaps_needed=front_line_tarcaps_needed,
             front_line_stances={f: None for f in finder.front_lines()},
             vulnerable_front_lines=list(finder.front_lines()),
             aewc_targets=[finder.farthest_friendly_control_point()],

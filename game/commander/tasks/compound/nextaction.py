@@ -24,11 +24,11 @@ class PlanNextAction(CompoundTask[TheaterState]):
 
     def each_valid_method(self, state: TheaterState) -> Iterator[Method[TheaterState]]:
         yield [TheaterSupport()]
-        yield [ProtectAirSpace()]
-        yield [CaptureBases()]
+        yield [DegradeIads()]
         yield [DefendBases()]
         yield [InterdictReinforcements()]
+        yield [ProtectAirSpace()]
+        yield [CaptureBases()]
+        yield [AttackBuildings()]
         yield [AttackBattlePositions()]
         yield [AttackAirInfrastructure(self.aircraft_cold_start)]
-        yield [AttackBuildings()]
-        yield [DegradeIads()]

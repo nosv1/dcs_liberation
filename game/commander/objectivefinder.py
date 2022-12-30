@@ -70,16 +70,20 @@ class ObjectiveFinder:
         return self._targets_by_range(self.enemy_ships())
 
     def _targets_by_range(
-        self, targets: Iterable[MissionTargetType]
+        self, targets: Iterable[MissionTargetType], consider_threat_range: bool = False
     ) -> Iterator[MissionTargetType]:
         target_ranges: list[tuple[MissionTargetType, float]] = []
         for target in targets:
             ranges: list[float] = []
             for cp in self.friendly_control_points():
-                ranges.append(target.distance_to(cp))
-            target_ranges.append((target, min(ranges)))
+                target_range = target.distance_to(cp)
 
-        target_ranges = sorted(target_ranges, key=operator.itemgetter(1))
+                if consider_threat_range:
+                    target: IadsGroundObject | NavalGroundObject
+                    target_range -= target.max_threat_range().meters
+
+                ranges.append(target_range)
+            target_ranges.append((target, min(ranges)))
         for target, _range in target_ranges:
             yield target
 

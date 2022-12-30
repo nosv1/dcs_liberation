@@ -66,23 +66,25 @@ Your flights:
 ====================
 {% for flight in flights if flight.client_units %}
 --------------------------------------------------
-{{ flight.flight_type }} {{ flight.units[0].type }} x {{ flight.size }}, departing in {{ flight.departure_delay }}, {{ flight.package.target.name}}
+{{ flight.flight_type }} {{ flight.units[0].type }} x {{ flight.size }}, {{ flight.departure_delay }} / {{ flight.package.time_over_target }}, {{ flight.package.target.name}}
 Freq : {{ flight|intra_flight_channel }}
 {% for waypoint in flight.waypoints %}
 {{ loop.index0 }} {{waypoint|waypoint_timing("Depart ")}}-- {{waypoint.name}} : {{ waypoint.description}}
 {% endfor %}
---------------------------------------------------{% endfor %}
+--------------------------------------------------
+{% endfor %}
 
 
-{%- if allied_flights_by_departure|length > 0 %}
+{% if allied_flights_by_departure|length > 0 %}
 Planned ally flights:
 ====================
 {% for dep in allied_flights_by_departure %}
 {{ dep }}
 ---------------------------------------------------
 {% for flight in allied_flights_by_departure[dep] %}
-{{ flight.flight_type }} {{ flight.units[0].type }} x {{flight.size}}, departing in {{ flight.departure_delay }}, {{ flight.package.target.name}}
+{{ flight.flight_type }} {{ flight.units[0].type }} x {{flight.size}}, {{ flight.departure_delay }} / {{ flight.package.time_over_target }}, {{ flight.package.target.name}}
 {% endfor %}
+
 {% endfor %}
 {% endif %}
 
@@ -106,9 +108,26 @@ AWACS:
 {% endfor %}
 {% endif %}
 
-{%- if jtacs|length > 0 %}
-JTACS [F-10 Menu] :
+{% if jtacs|length > 0 %}
+JTACS [F-10 Menu]:
 ====================
 {% for jtac in jtacs %}Frontline {{ jtac.region }} -- Code : {{ jtac.code }}, Freq : {{ jtac.freq.mhz }}
 {% endfor %}
 {% endif %}
+
+
+{% if enemy_flights_by_departure|length > 0 %}
+Planned enemy flights:
+====================
+{% for dep in enemy_flights_by_departure %}
+{{ dep }}
+---------------------------------------------------
+{% for flight in enemy_flights_by_departure[dep] %}
+{{ flight.flight_type }} {{ flight.units[0].type }} x {{flight.size}}, {{ flight.departure_delay }} / {{ flight.package.time_over_target }}, {{ flight.package.target.name}}
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+
+Last enemy TOT:
+{{ last_enemy_flight.flight_type }} {{ last_enemy_flight.units[0].type }} x {{last_enemy_flight.size}}, {{ last_enemy_flight.departure_delay }} / {{ last_enemy_flight.package.time_over_target }}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from random import random
 
 from game.commander.missionproposals import EscortType
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
@@ -16,11 +17,19 @@ class PlanAntiShip(PackagePlanningTask[NavalGroundObject]):
             return False
         if not self.target_area_preconditions_met(state, ignore_iads=True):
             return False
+
+        air_dominance: float = state.get_air_dominance()
+        r_air: float = random()
+
+        # larger air dominance, more willing
+        if r_air > air_dominance:
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:
         state.eliminate_ship(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.ANTISHIP, 2)
-        self.propose_flight(FlightType.ESCORT, 2, EscortType.AirToAir)
+        self.propose_flight(FlightType.SWEEP, 2, EscortType.AirToAir)

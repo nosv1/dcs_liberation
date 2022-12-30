@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from game.commander.tasks.primitive.barcap import PlanBarcap
 from game.commander.tasks.primitive.cas import PlanCas
 from game.commander.tasks.primitive.defensivestance import DefensiveStance
 from game.commander.tasks.primitive.retreatstance import RetreatStance
@@ -16,4 +17,9 @@ class DefendBase(CompoundTask[TheaterState]):
     def each_valid_method(self, state: TheaterState) -> Iterator[Method[TheaterState]]:
         yield [DefensiveStance(self.front_line, state.context.coalition.player)]
         yield [RetreatStance(self.front_line, state.context.coalition.player)]
-        yield [PlanCas(self.front_line)]
+        for front_line, needed in state.front_line_cas_needed.items():
+            if needed > 0:
+                yield [PlanCas(front_line, needed)]
+        for front_line, needed in state.front_line_tarcaps_needed.items():
+            if needed > 0:
+                yield [PlanBarcap(front_line, needed)]

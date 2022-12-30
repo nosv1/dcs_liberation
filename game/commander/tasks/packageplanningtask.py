@@ -10,6 +10,7 @@ from typing import Generic, Iterator, Optional, TYPE_CHECKING, TypeVar, Union
 from game.ato.flighttype import FlightType
 from game.ato.package import Package
 from game.commander.missionproposals import EscortType, ProposedFlight, ProposedMission
+from game.commander.objectivefinder import ObjectiveFinder
 from game.commander.packagefulfiller import PackageFulfiller
 from game.commander.tasks.theatercommandertask import TheaterCommanderTask
 from game.commander.theaterstate import TheaterState
@@ -93,7 +94,7 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
 
     def fulfill_mission(self, state: TheaterState) -> bool:
         color = "blue" if state.context.coalition.player else "red"
-        self.propose_flights()
+        self.propose_flights(state)
         fulfiller = PackageFulfiller(
             state.context.coalition,
             state.context.theater,
@@ -110,7 +111,7 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
 
     def propose_common_escorts(self) -> None:
         self.propose_flight(FlightType.SEAD_ESCORT, 2, EscortType.Sead)
-        self.propose_flight(FlightType.ESCORT, 2, EscortType.AirToAir)
+        self.propose_flight(FlightType.SWEEP, 2, EscortType.AirToAir)
 
     def iter_iads_ranges(
         self, state: TheaterState, range_type: RangeType
@@ -143,7 +144,7 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
             target_ranges.append((target, distance_to_threat))
 
         # TODO: Prioritize IADS by vulnerability?
-        target_ranges = sorted(target_ranges, key=operator.itemgetter(1))
+        target_ranges = sorted(target_ranges, key=operator.itemgetter(1), reverse=True)
         for target, _range in target_ranges:
             yield target
 
@@ -173,4 +174,15 @@ class PackagePlanningTask(TheaterCommanderTask, Generic[MissionTargetT]):
                 threatened = True
                 if iads_threat not in state.threatening_air_defenses:
                     state.threatening_air_defenses.append(iads_threat)
+
+        finder: ObjectiveFinder = ObjectiveFinder(
+            state.context.coalition.game, state.context.coalition.player
+        )
+        state.threatening_air_defenses = list(
+            finder._targets_by_range(state.threatening_air_defenses, True)
+        )
+        state.detecting_air_defenses = list(
+            finder._targets_by_range(state.detecting_air_defenses)
+        )
+
         return not threatened

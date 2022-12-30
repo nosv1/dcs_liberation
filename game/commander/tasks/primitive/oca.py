@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from random import random
 
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
 from game.commander.theaterstate import TheaterState
@@ -17,12 +18,20 @@ class PlanOcaStrike(PackagePlanningTask[ControlPoint]):
             return False
         if not self.target_area_preconditions_met(state):
             return False
+
+        air_dominance: float = state.get_air_dominance()
+        r_air: float = random()
+
+        # small air dominance, more willing -- despiration attack case o.p. tactic
+        if r_air < air_dominance:
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:
         state.oca_targets.remove(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.OCA_RUNWAY, 2)
         if self.aircraft_cold_start:
             self.propose_flight(FlightType.OCA_AIRCRAFT, 2)

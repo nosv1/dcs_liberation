@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from random import random
 
 from game.commander.missionproposals import EscortType
 from game.commander.tasks.packageplanningtask import PackagePlanningTask
@@ -19,12 +20,35 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             return False
         if not self.target_area_preconditions_met(state, ignore_iads=True):
             return False
+
+        if state.threatening_air_defenses:
+            target_priority: float = 1 - (
+                state.threatening_air_defenses.index(self.target)
+                / len(state.threatening_air_defenses)
+            )
+        else:
+            target_priority: float = (
+                1
+                - (
+                    state.detecting_air_defenses.index(self.target)
+                    / len(state.detecting_air_defenses)
+                )
+                / 2
+            )  # we care 50% less about a detector than a threat
+
+        air_dominance: float = state.get_air_dominance()
+        r_air: float = random()
+
+        # larger air dominance or higher priority (closer target), more willing
+        if r_air > air_dominance * target_priority:
+            return False
+
         return super().preconditions_met(state)
 
     def apply_effects(self, state: TheaterState) -> None:
         state.eliminate_air_defense(self.target)
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.DEAD, 2)
 
         # Only include SEAD against SAMs that still have emitters. No need to
@@ -43,4 +67,4 @@ class PlanDead(PackagePlanningTask[IadsGroundObject]):
             self.propose_flight(FlightType.SEAD, 2)
         else:
             self.propose_flight(FlightType.SEAD_ESCORT, 2, EscortType.Sead)
-        self.propose_flight(FlightType.ESCORT, 2, EscortType.AirToAir)
+        self.propose_flight(FlightType.SWEEP, 2, EscortType.AirToAir)

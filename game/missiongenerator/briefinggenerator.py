@@ -149,6 +149,8 @@ class BriefingGenerator(MissionInfoGenerator):
     def __init__(self, mission: Mission, game: Game):
         super().__init__(mission, game)
         self.allied_flights_by_departure: Dict[str, List[FlightData]] = {}
+        self.enemy_flights_by_departure: Dict[str, List[FlightData]] = {}
+        self.last_enemy_flight: FlightData = None
         env = Environment(
             loader=FileSystemLoader("resources/briefing/templates"),
             autoescape=select_autoescape(
@@ -167,7 +169,11 @@ class BriefingGenerator(MissionInfoGenerator):
         """Generate the mission briefing"""
         self._generate_frontline_info()
         self.generate_allied_flights_by_departure()
+        self.generate_enemy_flights_by_departure()
+        self.get_last_enemy_flight()
         self.mission.set_description_text(self.template.render(vars(self)))
+        with open("./mission_description_text.txt", "w") as f:
+            f.write(self.mission.description_text())
         self.mission.add_picture_blue(
             os.path.abspath("./resources/ui/splash_screen.png")
         )
@@ -189,3 +195,24 @@ class BriefingGenerator(MissionInfoGenerator):
                     self.allied_flights_by_departure[name].append(flight)
                 else:
                     self.allied_flights_by_departure[name] = [flight]
+
+    def generate_enemy_flights_by_departure(self) -> None:
+        """Create iterable to display enemy flights grouped by departure airfield."""
+        for flight in self.flights:
+            if not flight.friendly:
+                name = flight.departure.airfield_name
+                if name in self.enemy_flights_by_departure:
+                    self.enemy_flights_by_departure[name].append(flight)
+                else:
+                    self.enemy_flights_by_departure[name] = [flight]
+
+    def get_last_enemy_flight(self) -> None:
+        """Get the last enemy flight bsed on TOT."""
+        for flight in self.flights:
+            if not flight.friendly:
+                if (
+                    not self.last_enemy_flight
+                    or self.last_enemy_flight.package.time_over_target
+                    < flight.package.time_over_target
+                ):
+                    self.last_enemy_flight = flight
