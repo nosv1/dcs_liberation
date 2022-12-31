@@ -52,8 +52,8 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
                     # found waypoint with targets
 
                     if not (
-                        [(t.x, t.y) for t in fp_waypoint.targets]
-                        == [(t.x, t.y) for t in self.waypoint.targets]
+                        [(t.position.x, t.position.y) for t in fp_waypoint.targets]
+                        == [(t.position.x, t.position.y) for t in self.waypoint.targets]
                     ):
                         continue
                     # found waypoint with same targets

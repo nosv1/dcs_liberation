@@ -394,6 +394,15 @@ class Settings:
         min=30,
         max=150,
     )
+    minimum_carrier_flight_offset: timedelta = minutes_option(
+        "Minimum carrier flight offset",
+        page=MISSION_GENERATOR_PAGE,
+        section=GAMEPLAY_SECTION,
+        default=timedelta(minutes=3),
+        min=0,
+        max=20,
+        tooltip="Warning: Setting this to less than 3 minutes may cause congestion on the carrier deck."
+    )
 
     # Performance
     perf_smoke_gen: bool = boolean_option(
