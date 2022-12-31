@@ -37,11 +37,12 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
     def add_strike_tasks(self, waypoint: MovingPoint) -> None:
         # The code below shifts the targets for the strike waypoint to prevent later strike flights from attacking the same targets.
         strike_flights_ahead: int = 0
-        total_strike_flights: int = 0
         targets = [t for t in self.waypoint.targets]
 
         if isinstance(self.flight.flight_plan, StrikeFlightPlan):
             for flight in self.package.flights:
+                if flight == self.flight:
+                    break
                 if not isinstance(flight.flight_plan, StrikeFlightPlan):
                     continue
                 # found a flight that is a strike flight
@@ -58,9 +59,6 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
                         continue
                     # found waypoint with same targets
 
-                    total_strike_flights += 1
-                    if flight == self.flight:
-                        break  # this assumes the flights are in order
                     strike_flights_ahead += 1
 
             # shift amount example:
@@ -68,7 +66,7 @@ class StrikeIngressBuilder(PydcsWaypointBuilder):
             # shift amount = targets / total strike flights = 8 / 2 = 4
             # start index = strike flights ahead * shift amount = 1 * 4 = 4
             # we wrap to the beginning of the list if we go past the end
-            shift_amount: int = int(len(targets) / total_strike_flights)
+            shift_amount: int = int(len(targets) / (strike_flights_ahead + 1))
             if strike_flights_ahead > 0:
                 i: int = strike_flights_ahead * shift_amount
                 new_targets: list[TheaterUnit] = []

@@ -33,5 +33,6 @@ class PlanStrike(PackagePlanningTask[TheaterGroundObject]):
         state.strike_targets.remove(self.target)
 
     def propose_flights(self, state: TheaterState) -> None:
-        self.propose_flight(FlightType.STRIKE, 2)
+        self.propose_flight(FlightType.STRIKE, 1)
+        self.propose_flight(FlightType.STRIKE, 1)
         self.propose_common_escorts()
