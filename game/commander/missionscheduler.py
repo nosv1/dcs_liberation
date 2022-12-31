@@ -17,12 +17,19 @@ if TYPE_CHECKING:
 
 
 class MissionScheduler:
-    def __init__(self, coalition: Coalition, desired_mission_length: timedelta, minimum_carrier_flight_offset: timedelta) -> None:
+    def __init__(
+        self,
+        coalition: Coalition,
+        desired_mission_length: timedelta,
+        minimum_carrier_flight_offset: timedelta,
+    ) -> None:
         self.coalition = coalition
         self.desired_mission_length = desired_mission_length
         self.minimum_carrier_flight_offset = minimum_carrier_flight_offset
 
-    def offset_carrier_flights(self, carrier_flights: dict[ControlPoint, list[Flight]]) -> None:
+    def offset_carrier_flights(
+        self, carrier_flights: dict[ControlPoint, list[Flight]]
+    ) -> None:
         for flights in carrier_flights.values():
             flights.sort(key=lambda f: f.flight_plan.startup_time())
             for i, flight in enumerate(flights):
@@ -33,7 +40,9 @@ class MissionScheduler:
                 for j, previous_flight in enumerate(flights[:i]):
                     if previous_flight in flight.package.flights:
                         continue
-                    previuos_delay: timedelta = previous_flight.flight_plan.startup_time()
+                    previuos_delay: timedelta = (
+                        previous_flight.flight_plan.startup_time()
+                    )
                     delta: timedelta = abs(delay - previuos_delay)
 
                     if delta > self.minimum_carrier_flight_offset:
@@ -59,7 +68,9 @@ class MissionScheduler:
                 # check if there are flights coming to land by the time you are taking off, if so, spawn in air
                 for earlier_package in self.coalition.ato.packages:
                     for earlier_flight in earlier_package.flights:
-                        earlier_start_time: timedelta = earlier_flight.flight_plan.startup_time()
+                        earlier_start_time: timedelta = (
+                            earlier_flight.flight_plan.startup_time()
+                        )
                         earlier_tot: timedelta = earlier_flight.flight_plan.tot
                         waypoint_depart_time: timedelta = [earlier_tot] + [
                             earlier_flight.flight_plan.depart_time_for_waypoint(wp)
@@ -68,7 +79,9 @@ class MissionScheduler:
                         ]
                         base_to_target = earlier_tot - earlier_start_time
                         # base_to_target + 'latest' or last wp with a time should be the rtb time, but - offset to be safe
-                        earlier_arrival_time: timedelta = (base_to_target + waypoint_depart_time[-1]) - timedelta(minutes=10)
+                        earlier_arrival_time: timedelta = (
+                            base_to_target + waypoint_depart_time[-1]
+                        ) - timedelta(minutes=10)
 
                         if earlier_arrival_time > start_time:
                             continue

@@ -401,7 +401,7 @@ class Settings:
         default=timedelta(minutes=3),
         min=0,
         max=20,
-        tooltip="Warning: Setting this to less than 3 minutes may cause congestion on the carrier deck."
+        tooltip="Warning: Setting this to less than 3 minutes may cause congestion on the carrier deck.",
     )
 
     # Performance

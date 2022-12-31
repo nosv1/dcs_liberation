@@ -207,7 +207,9 @@ class Coalition:
                     TheaterCommander(self.game, self.player).plan_missions(tracer)
                 with tracer.trace(f"{color} mission scheduling"):
                     MissionScheduler(
-                        self, self.game.settings.desired_player_mission_duration, self.game.settings.minimum_carrier_flight_offset
+                        self,
+                        self.game.settings.desired_player_mission_duration,
+                        self.game.settings.minimum_carrier_flight_offset,
                     ).schedule_missions()
 
     def plan_procurement(self) -> None:
