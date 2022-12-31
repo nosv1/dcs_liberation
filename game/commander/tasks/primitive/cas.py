@@ -12,6 +12,8 @@ from game.ato.flighttype import FlightType
 
 @dataclass
 class PlanCas(PackagePlanningTask[FrontLine]):
+    max_orders: int = 1
+
     def preconditions_met(self, state: TheaterState) -> bool:
         if self.target not in state.vulnerable_front_lines:
             return False
@@ -51,7 +53,7 @@ class PlanCas(PackagePlanningTask[FrontLine]):
     def apply_effects(self, state: TheaterState) -> None:
         state.front_line_cas_needed[self.target] -= 1
 
-    def propose_flights(self) -> None:
+    def propose_flights(self, state: TheaterState) -> None:
         self.propose_flight(FlightType.CAS, 2)
         self.propose_flight(FlightType.SEAD_ESCORT, 2, escort_type=EscortType.Sead)
         self.propose_flight(FlightType.TARCAP, 2)
@@ -65,3 +67,7 @@ class PlanCas(PackagePlanningTask[FrontLine]):
             if friendly_cp.name not in front_line.name:
                 continue
             return stance.name in ["BREAKTHROUGH", "ELIMINATION", "AMBUSH"]
+
+    @property
+    def purchase_multiplier(self) -> int:
+        return self.max_orders
