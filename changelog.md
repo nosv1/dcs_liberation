@@ -1,3 +1,31 @@
+# 7.0.0 - Mo v0
+
+## Features/Improvements
+
+* **[Flight Planning]** Package generation is now probabilistic, and the order at which these flights attempt to be requested has been changed.  
+The order is now:
+  1. Theater Support (AEWC, Refueling)
+  2. Degrade IADS (DEAD, Anti-Ship)
+  3. Defend Bases (CAS, BARCAP)
+  4. Interdict Reinforcements (Convoy Interdiction, Anti-shipping)
+  5. Protect Airspace (BARCAP)
+  6. Capture Bases
+  7. Attack Buildings (Strike)
+  8. Attack Battle Positions (BAI)
+  9. Attack Air Infrastructure (OCA)
+
+  In order to meet pre-conditions, air and/or ground dominance is calculated (friendly count / total count) then compared to a random number [0, 1).
+* **[Flight Planning]** TARCAPS and BARCAPS needed is calculated based on air and ground dominance; this avoids uselss or excessive flights.
+* **[Flight Planning]** Strike flights now spawn in solo flights; this allows the flights to spread out the targets evenly in the event there are multiple targets at the target location.
+* **[Flight Planning]** Strike flights now have SEAD Escorts, and the order/lead time of escorts has been changed.
+  * SEAD Escorts have lead time of 6 minutes.
+  * Fighter Sweeps (previously Escorts) have a lead time of 3 minutes.
+* **[Mission Generation]** There is now a setting to offset carrier depatures - only allowing 1 flight per interval to depart (default is 3 minutes); this avoids congestion on the carrier deck.
+* **[Mission Generation]** Large aircraft and late departing carrier flights now spawn in the air; this avoids large aircraft from crashing at the end of runways and early carrier flights from landing while flights are taking off.
+* **[Mission Generation]** Aircraft that are destroyed without being damaged are ignored when calculating the number of aircraft lost; this attempts to lessen the impact of dumb AI.
+* **[UI]** Debriefing window now shows totals and is more ogranized.
+
+## Fixes
 # 7.0.0
 
 Saves from 6.x are not compatible with 7.0.
